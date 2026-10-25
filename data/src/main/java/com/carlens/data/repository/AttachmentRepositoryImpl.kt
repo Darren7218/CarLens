@@ -17,6 +17,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.time.Clock
+import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,7 +26,8 @@ import javax.inject.Singleton
 @Singleton
 class AttachmentRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val db: CarLensDatabase
+    private val db: CarLensDatabase,
+    private val clock: Clock
 ) : AttachmentRepository {
 
     private val storageDir = File(context.filesDir, "attachments").apply { mkdirs() }
@@ -62,7 +65,7 @@ class AttachmentRepositoryImpl @Inject constructor(
                 }
             } ?: throw IllegalStateException("Could not open input stream from URI: $sourceUri")
 
-            val sha256 = digest.digest().joinToString("") { "%02x".format(it) }
+            val sha256 = digest.digest().joinToString("") { String.format(Locale.US, "%02x", it) }
             val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
             val displayName = uri.lastPathSegment?.substringAfterLast('/') ?: fileName
 
@@ -75,7 +78,7 @@ class AttachmentRepositoryImpl @Inject constructor(
                 sizeBytes = size,
                 sha256 = sha256,
                 displayName = displayName,
-                createdAt = System.currentTimeMillis()
+                createdAt = clock.millis()
             )
             db.attachments().upsert(entity)
             entity.toDomain()
@@ -104,7 +107,7 @@ class AttachmentRepositoryImpl @Inject constructor(
                 }
             }
         }
-        val sha256 = digest.digest().joinToString("") { "%02x".format(it) }
+        val sha256 = digest.digest().joinToString("") { String.format(Locale.US, "%02x", it) }
 
         val entity = AttachmentEntity(
             id = UUID.randomUUID().toString(),
@@ -115,7 +118,7 @@ class AttachmentRepositoryImpl @Inject constructor(
             sizeBytes = size,
             sha256 = sha256,
             displayName = file.name,
-            createdAt = System.currentTimeMillis()
+            createdAt = clock.millis()
         )
         db.attachments().upsert(entity)
         entity.toDomain()
@@ -143,12 +146,12 @@ class AttachmentRepositoryImpl @Inject constructor(
     }
 
     override fun observeCounts(): Flow<Map<String, Int>> =
-        db.attachments().observeAll().map { list ->
-            list.groupingBy { it.ownerId }.eachCount()
+        db.attachments().observeCountsByOwner().map { rows ->
+            rows.associate { it.ownerId to it.count }
         }
 
     override suspend fun pruneOrphans(olderThanMillis: Long): Int = withContext(Dispatchers.IO) {
-        val cutoff = System.currentTimeMillis() - olderThanMillis
+        val cutoff = clock.millis() - olderThanMillis
         val allAttachments = db.attachments().all().filter { it.createdAt < cutoff }
         if (allAttachments.isEmpty()) return@withContext 0
 

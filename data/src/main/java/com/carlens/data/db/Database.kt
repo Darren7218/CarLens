@@ -188,6 +188,11 @@ interface DocumentDao {
     @Query("SELECT * FROM documents") suspend fun all(): List<DocumentEntity>
 }
 
+data class AttachmentCountRow(
+    val ownerId: String,
+    val count: Int
+)
+
 @Dao
 interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE ownerType = :ownerType AND ownerId = :ownerId ORDER BY createdAt")
@@ -210,6 +215,9 @@ interface AttachmentDao {
     @Query("SELECT * FROM attachments") suspend fun all(): List<AttachmentEntity>
 
     @Query("SELECT * FROM attachments") fun observeAll(): Flow<List<AttachmentEntity>>
+
+    @Query("SELECT ownerId, COUNT(*) AS count FROM attachments GROUP BY ownerId")
+    fun observeCountsByOwner(): Flow<List<AttachmentCountRow>>
 }
 
 @Dao

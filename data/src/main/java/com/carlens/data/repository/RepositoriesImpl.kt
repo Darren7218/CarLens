@@ -35,6 +35,7 @@ import com.carlens.domain.repository.VehicleRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import java.time.Clock
 import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
@@ -42,7 +43,8 @@ import javax.inject.Singleton
 
 @Singleton
 class VehicleRepositoryImpl @Inject constructor(
-    private val db: CarLensDatabase
+    private val db: CarLensDatabase,
+    private val clock: Clock
 ) : VehicleRepository {
     override fun observeVehicles(includeArchived: Boolean): Flow<List<Vehicle>> =
         db.vehicles().observeAll(includeArchived).map { list -> list.map { it.toDomain() } }
@@ -59,13 +61,14 @@ class VehicleRepositoryImpl @Inject constructor(
     }
 
     override suspend fun setArchived(id: String, archived: Boolean) {
-        db.vehicles().setArchived(id, archived, System.currentTimeMillis())
+        db.vehicles().setArchived(id, archived, clock.millis())
     }
 }
 
 @Singleton
 class OdometerRepositoryImpl @Inject constructor(
-    private val db: CarLensDatabase
+    private val db: CarLensDatabase,
+    private val clock: Clock
 ) : OdometerRepository {
     override fun observeReadings(vehicleId: String): Flow<List<OdometerReading>> =
         db.odometer().observe(vehicleId).map { list -> list.map { it.toDomain() } }
@@ -80,7 +83,7 @@ class OdometerRepositoryImpl @Inject constructor(
         startsNewSegment: Boolean
     ): String {
         val id = UUID.randomUUID().toString()
-        val now = System.currentTimeMillis()
+        val now = clock.millis()
         val entity = OdometerReadingEntity(
             id = id,
             vehicleId = vehicleId,
@@ -104,7 +107,8 @@ class OdometerRepositoryImpl @Inject constructor(
 
 @Singleton
 class FuelRepositoryImpl @Inject constructor(
-    private val db: CarLensDatabase
+    private val db: CarLensDatabase,
+    private val clock: Clock
 ) : FuelRepository {
 
     override fun observeEntries(vehicleId: String): Flow<List<FuelEntry>> {
@@ -141,7 +145,8 @@ class FuelRepositoryImpl @Inject constructor(
         val entryId = input.id ?: UUID.randomUUID().toString()
         val existing = if (input.id != null) db.fuel().get(entryId) else null
         val readingId = existing?.odometerReadingId ?: UUID.randomUUID().toString()
-        val now = System.currentTimeMillis()
+        val existingReading = existing?.odometerReadingId?.let { db.odometer().get(it) }
+        val now = clock.millis()
 
         // 1. Odometer reading
         val reading = OdometerReadingEntity(
@@ -153,7 +158,7 @@ class FuelRepositoryImpl @Inject constructor(
             km = input.odometerKm,
             source = OdometerSource.FUEL.name,
             startsNewSegment = input.startsNewSegment,
-            createdAt = existing?.createdAt ?: now,
+            createdAt = existingReading?.createdAt ?: existing?.createdAt ?: now,
             updatedAt = now
         )
         db.odometer().upsert(reading)
@@ -211,22 +216,64 @@ class FuelRepositoryImpl @Inject constructor(
         entry
     }
 
-    override suspend fun restore(entry: FuelEntry) {
-        save(
-            FuelEntryInput(
+    override suspend fun restore(entry: FuelEntry): Unit = db.withTransaction {
+        val now = clock.millis()
+        val createdAt = entry.createdAt.takeIf { it > 0L } ?: now
+        val readingId = entry.odometerReadingId.ifBlank { UUID.randomUUID().toString() }
+        val expenseId = entry.expenseId ?: UUID.randomUUID().toString()
+
+        db.odometer().upsert(
+            OdometerReadingEntity(
+                id = readingId,
+                vehicleId = entry.vehicleId,
+                epochMillis = entry.time.epochMillis,
+                localDate = entry.time.localDate.toEpochDay(),
+                zoneId = entry.time.zoneId,
+                km = entry.odometerKm,
+                source = OdometerSource.FUEL.name,
+                startsNewSegment = entry.startsNewSegment,
+                createdAt = createdAt,
+                updatedAt = now
+            )
+        )
+
+        db.fuel().upsert(
+            FuelEntryEntity(
                 id = entry.id,
                 vehicleId = entry.vehicleId,
-                time = entry.time,
-                odometerKm = entry.odometerKm,
-                startsNewSegment = entry.startsNewSegment,
+                odometerReadingId = readingId,
+                epochMillis = entry.time.epochMillis,
+                localDate = entry.time.localDate.toEpochDay(),
+                zoneId = entry.time.zoneId,
                 volumeMl = entry.volumeMl,
-                totalSen = entry.totalSen ?: 0L,
                 unitPriceMilliSen = entry.unitPriceMilliSen,
-                tankStatus = entry.tankStatus,
+                tankStatus = entry.tankStatus.name,
                 missedPrevious = entry.missedPrevious,
                 station = entry.station,
                 fuelType = entry.fuelType,
-                notes = entry.notes
+                notes = entry.notes,
+                createdAt = createdAt,
+                updatedAt = now
+            )
+        )
+
+        db.expenses().upsert(
+            ExpenseEntity(
+                id = expenseId,
+                vehicleId = entry.vehicleId,
+                epochMillis = entry.time.epochMillis,
+                localDate = entry.time.localDate.toEpochDay(),
+                zoneId = entry.time.zoneId,
+                amountSen = entry.totalSen ?: 0L,
+                currency = "MYR",
+                category = ExpenseCategory.FUEL.name,
+                merchant = entry.station,
+                notes = entry.notes,
+                fuelEntryId = entry.id,
+                serviceRecordId = null,
+                documentId = null,
+                createdAt = createdAt,
+                updatedAt = now
             )
         )
     }
@@ -236,7 +283,8 @@ class FuelRepositoryImpl @Inject constructor(
 
 @Singleton
 class ServiceRepositoryImpl @Inject constructor(
-    private val db: CarLensDatabase
+    private val db: CarLensDatabase,
+    private val clock: Clock
 ) : ServiceRepository {
 
     override fun observeRecords(vehicleId: String): Flow<List<ServiceRecord>> {
@@ -270,7 +318,8 @@ class ServiceRepositoryImpl @Inject constructor(
     override suspend fun save(input: ServiceRecordInput): String = db.withTransaction {
         val recordId = input.id ?: UUID.randomUUID().toString()
         val existing = if (input.id != null) db.services().get(recordId) else null
-        val now = System.currentTimeMillis()
+        val existingReading = existing?.odometerReadingId?.let { db.odometer().get(it) }
+        val now = clock.millis()
 
         // 1. Odometer reading (if provided)
         val odoKm = input.odometerKm
@@ -284,8 +333,8 @@ class ServiceRepositoryImpl @Inject constructor(
                 zoneId = input.time.zoneId,
                 km = odoKm,
                 source = OdometerSource.SERVICE.name,
-                startsNewSegment = false,
-                createdAt = existing?.createdAt ?: now,
+                startsNewSegment = existingReading?.startsNewSegment ?: false,
+                createdAt = existingReading?.createdAt ?: existing?.createdAt ?: now,
                 updatedAt = now
             )
             db.odometer().upsert(reading)
@@ -387,28 +436,98 @@ class ServiceRepositoryImpl @Inject constructor(
         record
     }
 
-    override suspend fun restore(record: ServiceRecord) {
-        save(
-            ServiceRecordInput(
+    override suspend fun restore(record: ServiceRecord): Unit = db.withTransaction {
+        val now = clock.millis()
+        val createdAt = record.createdAt.takeIf { it > 0L } ?: now
+        val odoKm = record.odometerKm
+        val readingId = if (odoKm != null) {
+            val rId = record.odometerReadingId ?: UUID.randomUUID().toString()
+            db.odometer().upsert(
+                OdometerReadingEntity(
+                    id = rId,
+                    vehicleId = record.vehicleId,
+                    epochMillis = record.time.epochMillis,
+                    localDate = record.time.localDate.toEpochDay(),
+                    zoneId = record.time.zoneId,
+                    km = odoKm,
+                    source = OdometerSource.SERVICE.name,
+                    startsNewSegment = false,
+                    createdAt = createdAt,
+                    updatedAt = now
+                )
+            )
+            rId
+        } else null
+
+        db.services().upsert(
+            ServiceRecordEntity(
                 id = record.id,
                 vehicleId = record.vehicleId,
-                time = record.time,
-                odometerKm = record.odometerKm,
+                odometerReadingId = readingId,
+                epochMillis = record.time.epochMillis,
+                localDate = record.time.localDate.toEpochDay(),
+                zoneId = record.time.zoneId,
                 title = record.title,
                 workshop = record.workshop,
                 notes = record.notes,
-                category = record.category,
-                totalSen = record.totalSen,
-                items = record.items.map {
-                    com.carlens.domain.model.ServiceItemInput(
-                        id = it.id,
-                        task = it.task,
-                        part = it.part,
-                        quantity = it.quantity,
-                        costSen = it.costSen,
-                        maintenanceRuleId = it.maintenanceRuleId
-                    )
-                }
+                category = record.category.name,
+                createdAt = createdAt,
+                updatedAt = now
+            )
+        )
+
+        db.services().deleteItems(record.id)
+        db.maintenance().deleteCompletionsFor(record.id)
+
+        val itemEntities = mutableListOf<ServiceItemEntity>()
+        val completions = mutableListOf<MaintenanceCompletionEntity>()
+        record.items.forEachIndexed { index, item ->
+            itemEntities += ServiceItemEntity(
+                id = item.id,
+                serviceRecordId = record.id,
+                position = index,
+                task = item.task,
+                part = item.part,
+                quantity = item.quantity,
+                costSen = item.costSen,
+                maintenanceRuleId = item.maintenanceRuleId
+            )
+            val mRuleId = item.maintenanceRuleId
+            if (mRuleId != null) {
+                completions += MaintenanceCompletionEntity(
+                    id = UUID.randomUUID().toString(),
+                    vehicleId = record.vehicleId,
+                    ruleId = mRuleId,
+                    serviceRecordId = record.id,
+                    serviceItemId = item.id,
+                    localDate = record.time.localDate.toEpochDay(),
+                    odometerKm = odoKm
+                )
+            }
+        }
+        db.services().insertItems(itemEntities)
+        if (completions.isNotEmpty()) {
+            db.maintenance().insertCompletions(completions)
+        }
+
+        val expenseId = record.expenseId ?: UUID.randomUUID().toString()
+        db.expenses().upsert(
+            ExpenseEntity(
+                id = expenseId,
+                vehicleId = record.vehicleId,
+                epochMillis = record.time.epochMillis,
+                localDate = record.time.localDate.toEpochDay(),
+                zoneId = record.time.zoneId,
+                amountSen = record.totalSen,
+                currency = "MYR",
+                category = record.category.name,
+                merchant = record.workshop,
+                notes = record.notes,
+                fuelEntryId = null,
+                serviceRecordId = record.id,
+                documentId = null,
+                createdAt = createdAt,
+                updatedAt = now
             )
         )
     }
@@ -453,7 +572,8 @@ class ExpenseRepositoryImpl @Inject constructor(
 
 @Singleton
 class MaintenanceRepositoryImpl @Inject constructor(
-    private val db: CarLensDatabase
+    private val db: CarLensDatabase,
+    private val clock: Clock
 ) : MaintenanceRepository {
 
     override fun observeRules(vehicleId: String): Flow<List<MaintenanceRule>> =
@@ -474,7 +594,7 @@ class MaintenanceRepositoryImpl @Inject constructor(
     }
 
     override suspend fun snooze(ruleId: String, until: LocalDate?) {
-        db.maintenance().snooze(ruleId, until?.toEpochDay(), System.currentTimeMillis())
+        db.maintenance().snooze(ruleId, until?.toEpochDay(), clock.millis())
     }
 
     override fun observeCompletions(vehicleId: String): Flow<List<MaintenanceCompletion>> =

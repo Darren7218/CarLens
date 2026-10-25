@@ -1,5 +1,6 @@
 package com.carlens.ui
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.carlens.domain.calc.CostSummary
@@ -19,6 +20,7 @@ import com.carlens.domain.model.ThemeMode
 import com.carlens.domain.model.Vehicle
 import com.carlens.domain.model.VehicleDocument
 import com.carlens.domain.repository.AttachmentRepository
+import com.carlens.domain.repository.BackupPreview
 import com.carlens.domain.repository.BackupRepository
 import com.carlens.domain.repository.DocumentRepository
 import com.carlens.domain.repository.ExpenseRepository
@@ -56,6 +58,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Clock
 import java.time.LocalDate
 import java.time.YearMonth
 import java.util.UUID
@@ -73,15 +76,15 @@ sealed interface UiMessage {
 @HiltViewModel
 class MainViewModel @Inject constructor(
     val vehicleRepo: VehicleRepository,
-    val fuelRepo: FuelRepository,
-    val serviceRepo: ServiceRepository,
-    val expenseRepo: ExpenseRepository,
+    private val fuelRepo: FuelRepository,
+    private val serviceRepo: ServiceRepository,
+    private val expenseRepo: ExpenseRepository,
     val maintenanceRepo: MaintenanceRepository,
-    val documentRepo: DocumentRepository,
-    val odometerRepo: OdometerRepository,
+    private val documentRepo: DocumentRepository,
+    private val odometerRepo: OdometerRepository,
     val attachmentRepo: AttachmentRepository,
-    val settingsRepo: SettingsRepository,
-    val backupRepo: BackupRepository,
+    private val settingsRepo: SettingsRepository,
+    private val backupRepo: BackupRepository,
     val saveFuelEntry: SaveFuelEntry,
     val recordService: RecordService,
     val recordMileage: RecordMileage,
@@ -89,12 +92,13 @@ class MainViewModel @Inject constructor(
     val saveMaintenanceRule: SaveMaintenanceRule,
     val saveDocument: SaveDocument,
     val renewDocument: RenewDocument,
-    val calculateFuelEconomy: CalculateFuelEconomy,
-    val evaluateMaintenance: EvaluateMaintenance,
-    val evaluateRenewals: EvaluateRenewals,
-    val summarizeCosts: SummarizeCosts,
-    val exportBackup: ExportBackup,
-    val restoreBackup: RestoreBackup
+    private val calculateFuelEconomy: CalculateFuelEconomy,
+    private val evaluateMaintenance: EvaluateMaintenance,
+    private val evaluateRenewals: EvaluateRenewals,
+    private val summarizeCosts: SummarizeCosts,
+    private val exportBackup: ExportBackup,
+    private val restoreBackup: RestoreBackup,
+    private val clock: Clock
 ) : ViewModel() {
 
     private val _settingsLoaded = MutableStateFlow(false)
@@ -169,7 +173,7 @@ class MainViewModel @Inject constructor(
     private val _costView = MutableStateFlow(CostView.RUNNING_COSTS)
     val costView = _costView.asStateFlow()
 
-    private val _selectedMonth = MutableStateFlow(YearMonth.now())
+    private val _selectedMonth = MutableStateFlow(YearMonth.now(clock))
     val selectedMonth: StateFlow<YearMonth> = _selectedMonth.asStateFlow()
 
     val monthlyCost: StateFlow<CostSummary?> = combine(selectedVehicleId, _selectedMonth, _costView) { id, month, view ->
@@ -183,7 +187,7 @@ class MainViewModel @Inject constructor(
         id to view
     }.flatMapLatest { (id, view) ->
         if (id == null) flowOf(null)
-        else summarizeCosts.observeMonth(id, YearMonth.now(), view)
+        else summarizeCosts.observeMonth(id, YearMonth.now(clock), view)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val monthlyTrend: StateFlow<List<Pair<YearMonth, Long>>> = combine(selectedVehicleId, _selectedMonth, _costView) { id, month, view ->
@@ -230,6 +234,9 @@ class MainViewModel @Inject constructor(
     private val _hasRecoveryBackup = MutableStateFlow(false)
     val hasRecoveryBackup: StateFlow<Boolean> = _hasRecoveryBackup.asStateFlow()
 
+    private val _pendingBackupPreview = MutableStateFlow<BackupPreview?>(null)
+    val pendingBackupPreview: StateFlow<BackupPreview?> = _pendingBackupPreview.asStateFlow()
+
     private val _pendingScreen = MutableStateFlow<Screen?>(null)
     val pendingScreen: StateFlow<Screen?> = _pendingScreen.asStateFlow()
 
@@ -240,7 +247,7 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             val list = vehicleRepo.getVehicles()
             if (list.isEmpty()) {
-                val now = System.currentTimeMillis()
+                val now = clock.millis()
                 val defaultVios = Vehicle(
                     id = UUID.randomUUID().toString(),
                     name = "My Vios",
@@ -259,7 +266,7 @@ class MainViewModel @Inject constructor(
 
                 DefaultMaintenanceRules.create(
                     vehicleId = defaultVios.id,
-                    startDate = LocalDate.now(),
+                    startDate = LocalDate.now(clock),
                     startKm = null,
                     now = now
                 ).forEach { maintenanceRepo.saveRule(it) }
@@ -269,9 +276,93 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun currentTimestampMillis(): Long = clock.millis()
+
     fun refreshRecoveryBackupStatus() {
         viewModelScope.launch {
             _hasRecoveryBackup.value = backupRepo.latestRecoveryBackup() != null
+        }
+    }
+
+    fun exportBackupArchive(destinationUri: String, password: CharArray?) {
+        viewModelScope.launch {
+            try {
+                exportBackup(destinationUri, password)
+                _message.value = UiMessage.Info("Backup exported successfully (.carlens)")
+            } catch (e: Exception) {
+                _message.value = UiMessage.Error("Export failed: ${e.message}")
+            }
+        }
+    }
+
+    fun inspectBackupArchive(sourceUri: String, password: CharArray?) {
+        viewModelScope.launch {
+            try {
+                _pendingBackupPreview.value = restoreBackup.inspect(sourceUri, password)
+            } catch (e: Exception) {
+                _message.value = UiMessage.Error("Inspect failed: ${e.message}")
+            }
+        }
+    }
+
+    fun inspectLatestRecoveryBackup() {
+        viewModelScope.launch {
+            try {
+                val file = backupRepo.latestRecoveryBackup()
+                if (file != null) {
+                    _pendingBackupPreview.value = restoreBackup.inspect(Uri.fromFile(file).toString(), null)
+                } else {
+                    _message.value = UiMessage.Info("No recovery backup found")
+                }
+            } catch (e: Exception) {
+                _message.value = UiMessage.Error("Recovery inspect failed: ${e.message}")
+            }
+        }
+    }
+
+    fun confirmBackupRestore() {
+        val preview = _pendingBackupPreview.value ?: return
+        _pendingBackupPreview.value = null
+        viewModelScope.launch {
+            try {
+                restoreBackup.restore(preview.token)
+                refreshRecoveryBackupStatus()
+                _message.value = UiMessage.Info("Restored backup successfully (${preview.vehicleNames.size} vehicles)")
+            } catch (e: Exception) {
+                _message.value = UiMessage.Error("Restore error: ${e.message}")
+            }
+        }
+    }
+
+    fun discardBackupPreview() {
+        val preview = _pendingBackupPreview.value ?: return
+        _pendingBackupPreview.value = null
+        viewModelScope.launch {
+            restoreBackup.discard(preview.token)
+        }
+    }
+
+    fun exportFuelCsv(destinationUri: String) {
+        val vehicleId = selectedVehicle.value?.id ?: return
+        viewModelScope.launch {
+            try {
+                backupRepo.exportFuelCsv(vehicleId, destinationUri)
+                _message.value = UiMessage.Info("Fuel CSV exported successfully")
+            } catch (e: Exception) {
+                _message.value = UiMessage.Error("CSV export failed: ${e.message}")
+            }
+        }
+    }
+
+    fun exportExpensesCsv(destinationUri: String) {
+        val vehicleId = selectedVehicle.value?.id ?: return
+        viewModelScope.launch {
+            try {
+                backupRepo.exportExpensesCsv(vehicleId, destinationUri)
+                _message.value = UiMessage.Info("Expenses CSV exported successfully")
+            } catch (e: Exception) {
+                _message.value = UiMessage.Error("CSV export failed: ${e.message}")
+            }
         }
     }
 
@@ -388,7 +479,7 @@ class MainViewModel @Inject constructor(
 
     fun snoozeMaintenance(rule: MaintenanceRule, days: Long?) {
         viewModelScope.launch {
-            val until = days?.let { LocalDate.now().plusDays(it) }
+            val until = days?.let { LocalDate.now(clock).plusDays(it) }
             maintenanceRepo.snooze(rule.id, until)
             _message.value = UiMessage.Info(
                 if (days != null) "Snoozed ${rule.task} for $days days"

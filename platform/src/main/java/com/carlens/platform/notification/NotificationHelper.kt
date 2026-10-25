@@ -15,6 +15,7 @@ import com.carlens.domain.repository.SettingsRepository
 import com.carlens.domain.usecase.ReminderCandidate
 import com.carlens.platform.receiver.SnoozeReceiver
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,7 +23,8 @@ import javax.inject.Singleton
 class NotificationHelper @Inject constructor(
     @ApplicationContext private val context: Context,
     private val settings: SettingsRepository,
-    private val reminderRepo: ReminderRepository
+    private val reminderRepo: ReminderRepository,
+    private val clock: Clock
 ) {
     companion object {
         const val CHANNEL_ID = "carlens_reminders"
@@ -121,7 +123,7 @@ class NotificationHelper @Inject constructor(
                     targetId = candidate.targetId,
                     dueCycle = candidate.dueCycle,
                     stage = candidate.stage,
-                    deliveredAt = System.currentTimeMillis()
+                    deliveredAt = clock.millis()
                 )
             )
         } catch (_: SecurityException) {

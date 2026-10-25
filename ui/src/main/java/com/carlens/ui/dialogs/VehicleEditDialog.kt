@@ -220,7 +220,7 @@ fun VehicleEditDialog(
                     }
                 }
 
-                if (isEditing && vehicle != null && onToggleArchive != null) {
+                if (vehicle != null && onToggleArchive != null) {
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedButton(
                         onClick = {

@@ -94,7 +94,7 @@ fun AddServiceDialog(
     var workshopText by remember { mutableStateOf(recordToEdit?.workshop ?: "") }
     var odometerText by remember {
         mutableStateOf(
-            if (isEditing) (recordToEdit?.odometerKm?.toString() ?: "")
+            if (recordToEdit != null) (recordToEdit.odometerKm?.toString() ?: "")
             else (lastMileageKm?.toString() ?: "")
         )
     }

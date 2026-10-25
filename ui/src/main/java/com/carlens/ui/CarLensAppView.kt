@@ -3,46 +3,27 @@ package com.carlens.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.carlens.domain.calc.Units
 import com.carlens.domain.model.Expense
 import com.carlens.domain.model.FuelEntry
 import com.carlens.domain.model.MaintenanceRule
 import com.carlens.domain.model.ServiceRecord
 import com.carlens.domain.model.Vehicle
 import com.carlens.domain.model.VehicleDocument
-import com.carlens.domain.repository.BackupPreview
 import com.carlens.ui.care.CareScreen
 import com.carlens.ui.components.CarLensScaffold
 import com.carlens.ui.components.Screen
@@ -52,6 +33,10 @@ import com.carlens.ui.dialogs.AddEditMaintenanceRuleDialog
 import com.carlens.ui.dialogs.AddExpenseDialog
 import com.carlens.ui.dialogs.AddFuelDialog
 import com.carlens.ui.dialogs.AddServiceDialog
+import com.carlens.ui.dialogs.ConfirmRestoreDialog
+import com.carlens.ui.dialogs.ExportBackupDialog
+import com.carlens.ui.dialogs.InspectBackupDialog
+import com.carlens.ui.dialogs.MonthlyBudgetDialog
 import com.carlens.ui.dialogs.OdometerHistoryDialog
 import com.carlens.ui.dialogs.RenewDocumentDialog
 import com.carlens.ui.dialogs.UpdateMileageDialog
@@ -59,10 +44,6 @@ import com.carlens.ui.dialogs.VehicleEditDialog
 import com.carlens.ui.fuel.FuelScreen
 import com.carlens.ui.garage.GarageScreen
 import com.carlens.ui.home.HomeScreen
-import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 @Composable
 fun CarLensAppView(
@@ -93,6 +74,7 @@ fun CarLensAppView(
     val merchantSuggestions by viewModel.merchantSuggestions.collectAsStateWithLifecycle()
     val attachmentCounts by viewModel.attachmentCounts.collectAsStateWithLifecycle()
     val hasRecoveryBackup by viewModel.hasRecoveryBackup.collectAsStateWithLifecycle()
+    val pendingBackupPreview by viewModel.pendingBackupPreview.collectAsStateWithLifecycle()
     val pendingScreen by viewModel.pendingScreen.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
 
@@ -130,34 +112,25 @@ fun CarLensAppView(
     var vehicleToEdit by remember { mutableStateOf<Vehicle?>(null) }
 
     var showBudgetDialog by remember { mutableStateOf(false) }
-    var budgetInputText by remember { mutableStateOf("") }
 
     // Export/Restore backup states
     var exportPasswordDialog by remember { mutableStateOf(false) }
     var restorePasswordDialog by remember { mutableStateOf(false) }
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
-    var pendingBackupPreview by remember { mutableStateOf<BackupPreview?>(null) }
-    var exportPasswordText by remember { mutableStateOf("") }
-    var restorePasswordText by remember { mutableStateOf("") }
+    var pendingExportPassword by remember { mutableStateOf<CharArray?>(null) }
 
-    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
     // SAF file pickers
     val exportBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip")
     ) { uri ->
-        val pw = if (exportPasswordText.isBlank()) null else exportPasswordText.toCharArray()
-        exportPasswordText = ""
+        val pw = pendingExportPassword
+        pendingExportPassword = null
         if (uri != null) {
-            scope.launch {
-                try {
-                    viewModel.exportBackup(uri.toString(), pw)
-                    snackbarHostState.showSnackbar("Backup exported successfully (.carlens)")
-                } catch (e: Exception) {
-                    snackbarHostState.showSnackbar("Export failed: ${e.message}")
-                }
-            }
+            viewModel.exportBackupArchive(uri.toString(), pw)
+        } else {
+            pw?.fill('\u0000')
         }
     }
 
@@ -166,7 +139,6 @@ fun CarLensAppView(
     ) { uri ->
         if (uri != null) {
             pendingRestoreUri = uri
-            restorePasswordText = ""
             restorePasswordDialog = true
         }
     }
@@ -174,30 +146,16 @@ fun CarLensAppView(
     val exportFuelCsvLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
-        if (uri != null && selectedVehicle != null) {
-            scope.launch {
-                try {
-                    viewModel.backupRepo.exportFuelCsv(selectedVehicle!!.id, uri.toString())
-                    snackbarHostState.showSnackbar("Fuel CSV exported successfully")
-                } catch (e: Exception) {
-                    snackbarHostState.showSnackbar("CSV export failed: ${e.message}")
-                }
-            }
+        if (uri != null) {
+            viewModel.exportFuelCsv(uri.toString())
         }
     }
 
     val exportExpensesCsvLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
-        if (uri != null && selectedVehicle != null) {
-            scope.launch {
-                try {
-                    viewModel.backupRepo.exportExpensesCsv(selectedVehicle!!.id, uri.toString())
-                    snackbarHostState.showSnackbar("Expenses CSV exported successfully")
-                } catch (e: Exception) {
-                    snackbarHostState.showSnackbar("CSV export failed: ${e.message}")
-                }
-            }
+        if (uri != null) {
+            viewModel.exportExpensesCsv(uri.toString())
         }
     }
 
@@ -380,13 +338,7 @@ fun CarLensAppView(
                         expenseToEdit = null
                         showAddExpenseDialog = true
                     },
-                    onEditBudgetClick = {
-                        val currentSen = settings.monthlyBudgetSen
-                        budgetInputText = if (currentSen != null && currentSen > 0L) {
-                            String.format(java.util.Locale.US, "%.2f", currentSen / 100.0)
-                        } else ""
-                        showBudgetDialog = true
-                    }
+                    onEditBudgetClick = { showBudgetDialog = true }
                 )
 
                 Screen.GARAGE -> GarageScreen(
@@ -421,39 +373,16 @@ fun CarLensAppView(
                         documentToRenew = doc
                     },
                     onDeleteDocument = { viewModel.deleteDocument(it) },
-                    onExportBackupClick = {
-                        exportPasswordText = ""
-                        exportPasswordDialog = true
-                    },
+                    onExportBackupClick = { exportPasswordDialog = true },
                     onRestoreBackupClick = { restoreBackupLauncher.launch(arrayOf("*/*")) },
-                    onRestoreRecoveryClick = {
-                        scope.launch {
-                            try {
-                                val file = viewModel.backupRepo.latestRecoveryBackup()
-                                if (file != null) {
-                                    val preview = viewModel.restoreBackup.inspect(Uri.fromFile(file).toString(), null)
-                                    pendingBackupPreview = preview
-                                } else {
-                                    snackbarHostState.showSnackbar("No recovery backup found")
-                                }
-                            } catch (e: Exception) {
-                                snackbarHostState.showSnackbar("Recovery inspect failed: ${e.message}")
-                            }
-                        }
-                    },
+                    onRestoreRecoveryClick = { viewModel.inspectLatestRecoveryBackup() },
                     onExportFuelCsvClick = {
                         exportFuelCsvLauncher.launch("carlens_fuel_${selectedVehicle?.name ?: "car"}.csv")
                     },
                     onExportExpensesCsvClick = {
                         exportExpensesCsvLauncher.launch("carlens_expenses_${selectedVehicle?.name ?: "car"}.csv")
                     },
-                    onEditBudgetClick = {
-                        val currentSen = settings.monthlyBudgetSen
-                        budgetInputText = if (currentSen != null && currentSen > 0L) {
-                            String.format(java.util.Locale.US, "%.2f", currentSen / 100.0)
-                        } else ""
-                        showBudgetDialog = true
-                    },
+                    onEditBudgetClick = { showBudgetDialog = true },
                     onThemeModeChanged = { viewModel.setThemeMode(it) },
                     onHidePlateChanged = { viewModel.setHidePlate(it) },
                     onHideAmountsChanged = { viewModel.setHideAmounts(it) },
@@ -469,12 +398,13 @@ fun CarLensAppView(
         )
 
         // Dialogs
-        if (showAddFuelDialog && selectedVehicle != null) {
+        val activeVehicle = selectedVehicle
+        if (showAddFuelDialog && activeVehicle != null) {
             AddFuelDialog(
-                vehicleId = selectedVehicle!!.id,
+                vehicleId = activeVehicle.id,
                 lastMileageKm = mileage.currentKm,
                 defaultStation = settings.lastStation,
-                defaultFuelType = settings.lastFuelType.ifBlank { selectedVehicle!!.fuelType },
+                defaultFuelType = settings.lastFuelType.ifBlank { activeVehicle.fuelType },
                 entryToEdit = fuelToEdit,
                 stationSuggestions = stationSuggestions,
                 saveFuelEntry = viewModel.saveFuelEntry,
@@ -490,9 +420,9 @@ fun CarLensAppView(
             )
         }
 
-        if (showUpdateMileageDialog && selectedVehicle != null) {
+        if (showUpdateMileageDialog && activeVehicle != null) {
             UpdateMileageDialog(
-                vehicleId = selectedVehicle!!.id,
+                vehicleId = activeVehicle.id,
                 lastMileageKm = mileage.currentKm,
                 recordMileage = viewModel.recordMileage,
                 onDismiss = { showUpdateMileageDialog = false },
@@ -512,9 +442,9 @@ fun CarLensAppView(
             )
         }
 
-        if (showAddExpenseDialog && selectedVehicle != null) {
+        if (showAddExpenseDialog && activeVehicle != null) {
             AddExpenseDialog(
-                vehicleId = selectedVehicle!!.id,
+                vehicleId = activeVehicle.id,
                 expenseToEdit = expenseToEdit,
                 merchantSuggestions = merchantSuggestions,
                 saveExpense = viewModel.saveExpense,
@@ -530,9 +460,9 @@ fun CarLensAppView(
             )
         }
 
-        if (showAddServiceDialog && selectedVehicle != null) {
+        if (showAddServiceDialog && activeVehicle != null) {
             AddServiceDialog(
-                vehicleId = selectedVehicle!!.id,
+                vehicleId = activeVehicle.id,
                 lastMileageKm = mileage.currentKm,
                 availableRules = maintenanceStatuses.map { it.rule },
                 initialRule = servicePreSelectedRule,
@@ -554,9 +484,9 @@ fun CarLensAppView(
             )
         }
 
-        if (showRuleDialog && selectedVehicle != null) {
+        if (showRuleDialog && activeVehicle != null) {
             AddEditMaintenanceRuleDialog(
-                vehicleId = selectedVehicle!!.id,
+                vehicleId = activeVehicle.id,
                 currentMileageKm = mileage.currentKm,
                 ruleToEdit = ruleToEdit,
                 saveMaintenanceRule = viewModel.saveMaintenanceRule,
@@ -578,9 +508,9 @@ fun CarLensAppView(
             )
         }
 
-        if (showAddDocumentDialog && selectedVehicle != null) {
+        if (showAddDocumentDialog && activeVehicle != null) {
             AddDocumentDialog(
-                vehicleId = selectedVehicle!!.id,
+                vehicleId = activeVehicle.id,
                 docToEdit = documentToEdit,
                 saveDocument = viewModel.saveDocument,
                 attachmentRepo = viewModel.attachmentRepo,
@@ -631,218 +561,45 @@ fun CarLensAppView(
         }
 
         if (showBudgetDialog) {
-            AlertDialog(
-                onDismissRequest = { showBudgetDialog = false },
-                title = { Text("Monthly Spending Budget") },
-                text = {
-                    Column {
-                        Text(
-                            text = "Set a monthly target for your vehicle expenses. Leave blank to disable.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        OutlinedTextField(
-                            value = budgetInputText,
-                            onValueChange = { budgetInputText = it },
-                            label = { Text("Monthly Budget (RM)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val sen = Units.parseMoneyToSen(budgetInputText)
-                        viewModel.setMonthlyBudgetSen(if (sen != null && sen > 0L) sen else null)
-                        showBudgetDialog = false
-                    }) {
-                        Text("Save")
-                    }
-                },
-                dismissButton = {
-                    Row {
-                        if ((settings.monthlyBudgetSen ?: 0L) > 0L) {
-                            TextButton(onClick = {
-                                viewModel.setMonthlyBudgetSen(null)
-                                showBudgetDialog = false
-                            }) {
-                                Text("Clear", color = MaterialTheme.colorScheme.error)
-                            }
-                        }
-                        TextButton(onClick = { showBudgetDialog = false }) {
-                            Text("Cancel")
-                        }
-                    }
-                }
+            MonthlyBudgetDialog(
+                currentBudgetSen = settings.monthlyBudgetSen,
+                onSaveBudgetSen = { viewModel.setMonthlyBudgetSen(it) },
+                onDismiss = { showBudgetDialog = false }
             )
         }
 
-        // Export password prompt
         if (exportPasswordDialog) {
-            AlertDialog(
-                onDismissRequest = {
+            ExportBackupDialog(
+                onConfirm = { pwText ->
                     exportPasswordDialog = false
-                    exportPasswordText = ""
+                    pendingExportPassword = if (pwText.isBlank()) null else pwText.toCharArray()
+                    exportBackupLauncher.launch("carlens_backup_${viewModel.currentTimestampMillis()}.carlens")
                 },
-                title = { Text("Export CarLens Backup") },
-                text = {
-                    OutlinedTextField(
-                        value = exportPasswordText,
-                        onValueChange = { exportPasswordText = it },
-                        label = { Text("Password (optional)") },
-                        supportingText = { Text("Leave blank for unencrypted .carlens archive") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        exportPasswordDialog = false
-                        exportBackupLauncher.launch("carlens_backup_${System.currentTimeMillis()}.carlens")
-                    }) {
-                        Text("Export")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        exportPasswordDialog = false
-                        exportPasswordText = ""
-                    }) {
-                        Text("Cancel")
-                    }
-                }
+                onDismiss = { exportPasswordDialog = false }
             )
         }
 
-        // Step 1: Restore password prompt (inspects archive first)
-        if (restorePasswordDialog && pendingRestoreUri != null) {
-            AlertDialog(
-                onDismissRequest = {
+        val restoreUri = pendingRestoreUri
+        if (restorePasswordDialog && restoreUri != null) {
+            InspectBackupDialog(
+                onConfirm = { pw ->
                     restorePasswordDialog = false
                     pendingRestoreUri = null
-                    restorePasswordText = ""
+                    viewModel.inspectBackupArchive(restoreUri.toString(), pw)
                 },
-                title = { Text("Inspect Backup Archive") },
-                text = {
-                    OutlinedTextField(
-                        value = restorePasswordText,
-                        onValueChange = { restorePasswordText = it },
-                        label = { Text("Password (if encrypted)") },
-                        supportingText = { Text("Next step will preview the archive contents before restoring.") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val uri = pendingRestoreUri!!
-                        val pw = if (restorePasswordText.isBlank()) null else restorePasswordText.toCharArray()
-                        restorePasswordText = ""
-                        restorePasswordDialog = false
-                        pendingRestoreUri = null
-                        scope.launch {
-                            try {
-                                val preview = viewModel.restoreBackup.inspect(uri.toString(), pw)
-                                pendingBackupPreview = preview
-                            } catch (e: Exception) {
-                                snackbarHostState.showSnackbar("Inspect failed: ${e.message}")
-                            }
-                        }
-                    }) {
-                        Text("Inspect Archive")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        restorePasswordDialog = false
-                        pendingRestoreUri = null
-                        restorePasswordText = ""
-                    }) {
-                        Text("Cancel")
-                    }
+                onDismiss = {
+                    restorePasswordDialog = false
+                    pendingRestoreUri = null
                 }
             )
         }
 
-        // Step 2: Backup Preview & Confirmation Dialog
         val preview = pendingBackupPreview
         if (preview != null) {
-            val exportedDate = remember(preview.createdAt) {
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-                    .withZone(ZoneId.systemDefault())
-                    .format(Instant.ofEpochMilli(preview.createdAt))
-            }
-            AlertDialog(
-                onDismissRequest = {
-                    val token = preview.token
-                    pendingBackupPreview = null
-                    scope.launch { viewModel.restoreBackup.discard(token) }
-                },
-                title = { Text("Confirm Backup Restore") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = "Exported: $exportedDate",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        val vehicleSummary = preview.vehicleNames.joinToString(", ").ifBlank { "None" }
-                        Text(
-                            text = "Vehicles (${preview.vehicleNames.size}): $vehicleSummary",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        preview.counts.forEach { (key, count) ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(text = key, style = MaterialTheme.typography.bodySmall)
-                                Text(text = "$count", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "A safety recovery backup of your current data will be saved automatically before replacing.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val token = preview.token
-                        val vehicleCount = preview.vehicleNames.size
-                        pendingBackupPreview = null
-                        scope.launch {
-                            try {
-                                viewModel.restoreBackup.restore(token)
-                                viewModel.refreshRecoveryBackupStatus()
-                                snackbarHostState.showSnackbar("Restored backup successfully ($vehicleCount vehicles)")
-                            } catch (e: Exception) {
-                                snackbarHostState.showSnackbar("Restore error: ${e.message}")
-                            }
-                        }
-                    }) {
-                        Text("Restore Now", fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        val token = preview.token
-                        pendingBackupPreview = null
-                        scope.launch { viewModel.restoreBackup.discard(token) }
-                    }) {
-                        Text("Cancel")
-                    }
-                }
+            ConfirmRestoreDialog(
+                preview = preview,
+                onConfirm = { viewModel.confirmBackupRestore() },
+                onCancel = { viewModel.discardBackupPreview() }
             )
         }
     }

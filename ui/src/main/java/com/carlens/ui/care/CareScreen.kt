@@ -25,16 +25,17 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -53,6 +54,7 @@ import com.carlens.domain.model.ServiceRecord
 import com.carlens.ui.components.AttachmentCountBadge
 import com.carlens.ui.components.StatusBadge
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CareScreen(
     maintenanceStatuses: List<MaintenanceStatus>,
@@ -97,7 +99,7 @@ fun CareScreen(
             }
             Spacer(modifier = Modifier.height(10.dp))
 
-            TabRow(
+            PrimaryTabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = MaterialTheme.colorScheme.background
             ) {
@@ -504,7 +506,7 @@ private fun ServiceRecordCard(
             // Itemized parts & tasks
             if (record.items.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                 Spacer(modifier = Modifier.height(8.dp))
 
                 record.items.forEach { item ->

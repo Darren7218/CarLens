@@ -58,7 +58,7 @@ fun AddEditMaintenanceRuleDialog(
     var startDate by remember { mutableStateOf(ruleToEdit?.startDate ?: LocalDate.now()) }
     var startKmText by remember {
         mutableStateOf(
-            if (isEditing) (ruleToEdit?.startKm?.toString() ?: "")
+            if (ruleToEdit != null) (ruleToEdit.startKm?.toString() ?: "")
             else (currentMileageKm?.toString() ?: "")
         )
     }
@@ -208,7 +208,7 @@ fun AddEditMaintenanceRuleDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                if (isEditing && ruleToEdit != null && onDeleteRule != null) {
+                if (ruleToEdit != null && onDeleteRule != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     TextButton(
                         onClick = {

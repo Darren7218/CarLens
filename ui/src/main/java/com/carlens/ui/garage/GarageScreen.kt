@@ -77,6 +77,7 @@ fun GarageScreen(
     onRestoreRecoveryClick: () -> Unit = {},
     onExportFuelCsvClick: () -> Unit,
     onExportExpensesCsvClick: () -> Unit,
+    onExportServicesCsvClick: () -> Unit = {},
     onEditBudgetClick: () -> Unit = {},
     onThemeModeChanged: (ThemeMode) -> Unit,
     onHidePlateChanged: (Boolean) -> Unit,
@@ -440,6 +441,12 @@ fun GarageScreen(
                             modifier = Modifier.weight(1f)
                         ) {
                             Text("Expenses CSV")
+                        }
+                        OutlinedButton(
+                            onClick = onExportServicesCsvClick,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Services CSV")
                         }
                     }
                 }

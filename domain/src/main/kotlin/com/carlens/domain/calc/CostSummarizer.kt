@@ -56,6 +56,57 @@ object CostSummarizer {
     fun month(expenses: List<Expense>, readings: List<OdometerReading>, month: YearMonth, view: CostView) =
         summarize(expenses, readings, month.atDay(1), month.atEndOfMonth(), view)
 
+    fun allTime(expenses: List<Expense>, readings: List<OdometerReading>, view: CostView): CostSummary {
+        val included = expenses.filter { view.includes(it.category) }
+            .sortedByDescending { it.time.epochMillis }
+        val byCat = included.groupBy { it.category }
+            .map { (c, list) -> CategoryTotal(c, list.sumOf { it.amountSen }, list.size) }
+            .sortedByDescending { it.totalSen }
+        val from = included.minOfOrNull { it.time.localDate }
+            ?: readings.minOfOrNull { it.time.localDate }
+            ?: LocalDate.now()
+        val to = included.maxOfOrNull { it.time.localDate }
+            ?: readings.maxOfOrNull { it.time.localDate }
+            ?: from
+        return CostSummary(
+            from = from,
+            to = to,
+            view = view,
+            totalSen = included.sumOf { it.amountSen },
+            byCategory = byCat,
+            expenses = included,
+            distanceKm = totalTrackedDistanceKm(readings)
+        )
+    }
+
+    /**
+     * Total distance tracked across all continuity segments. Each segment is measured from its
+     * first reading to its last reading; segments with fewer than 2 readings contribute 0.
+     */
+    fun totalTrackedDistanceKm(readings: List<OdometerReading>): Long? {
+        if (readings.size < 2) return null
+        val sorted = readings.sortedWith(compareBy<OdometerReading> { it.time.epochMillis }.thenBy { it.km })
+        var total = 0L
+        var segmentStartKm = sorted.first().km
+        var segmentLastKm = segmentStartKm
+        for (i in 1 until sorted.size) {
+            val r = sorted[i]
+            if (r.startsNewSegment) {
+                if (segmentLastKm > segmentStartKm) {
+                    total += (segmentLastKm - segmentStartKm)
+                }
+                segmentStartKm = r.km
+                segmentLastKm = r.km
+            } else {
+                segmentLastKm = r.km
+            }
+        }
+        if (segmentLastKm > segmentStartKm) {
+            total += (segmentLastKm - segmentStartKm)
+        }
+        return total.takeIf { it > 0L }
+    }
+
     fun monthlyTotals(expenses: List<Expense>, endMonth: YearMonth, months: Int, view: CostView): List<Pair<YearMonth, Long>> {
         val start = endMonth.minusMonths((months - 1).toLong())
         val totals = expenses.filter { view.includes(it.category) }

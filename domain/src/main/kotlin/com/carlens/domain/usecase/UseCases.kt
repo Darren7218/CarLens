@@ -202,6 +202,11 @@ class SummarizeCosts @Inject constructor(
             CostSummarizer.month(e, r, month, view)
         }
 
+    fun observeAllTime(vehicleId: String, view: CostView): Flow<CostSummary> =
+        combine(expenses.observeExpenses(vehicleId), odometer.observeReadings(vehicleId)) { e, r ->
+            CostSummarizer.allTime(e, r, view)
+        }
+
     fun observeTrend(vehicleId: String, endMonth: YearMonth, months: Int, view: CostView): Flow<List<Pair<YearMonth, Long>>> =
         expenses.observeExpenses(vehicleId).map { CostSummarizer.monthlyTotals(it, endMonth, months, view) }
 }

@@ -69,6 +69,8 @@ sealed interface UiMessage {
     data class UndoFuel(val entry: FuelEntry) : UiMessage
     data class UndoService(val record: ServiceRecord) : UiMessage
     data class UndoExpense(val expense: Expense) : UiMessage
+    data class UndoDocument(val doc: VehicleDocument) : UiMessage
+    data class UndoRule(val rule: MaintenanceRule) : UiMessage
     data class Error(val text: String) : UiMessage
 }
 
@@ -83,7 +85,7 @@ class MainViewModel @Inject constructor(
     private val documentRepo: DocumentRepository,
     private val odometerRepo: OdometerRepository,
     val attachmentRepo: AttachmentRepository,
-    private val settingsRepo: SettingsRepository,
+    val settingsRepo: SettingsRepository,
     private val backupRepo: BackupRepository,
     val saveFuelEntry: SaveFuelEntry,
     val recordService: RecordService,
@@ -188,6 +190,13 @@ class MainViewModel @Inject constructor(
     }.flatMapLatest { (id, view) ->
         if (id == null) flowOf(null)
         else summarizeCosts.observeMonth(id, YearMonth.now(clock), view)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val allTimeCost: StateFlow<CostSummary?> = combine(selectedVehicleId, _costView) { id, view ->
+        id to view
+    }.flatMapLatest { (id, view) ->
+        if (id == null) flowOf(null)
+        else summarizeCosts.observeAllTime(id, view)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val monthlyTrend: StateFlow<List<Pair<YearMonth, Long>>> = combine(selectedVehicleId, _selectedMonth, _costView) { id, month, view ->
@@ -366,6 +375,18 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun exportServicesCsv(destinationUri: String) {
+        val vehicleId = selectedVehicle.value?.id ?: return
+        viewModelScope.launch {
+            try {
+                backupRepo.exportServicesCsv(vehicleId, destinationUri)
+                _message.value = UiMessage.Info("Services CSV exported successfully")
+            } catch (e: Exception) {
+                _message.value = UiMessage.Error("CSV export failed: ${e.message}")
+            }
+        }
+    }
+
     fun handleNotificationDeepLink(vehicleId: String?, targetType: String?) {
         viewModelScope.launch {
             if (!vehicleId.isNullOrBlank()) {
@@ -459,14 +480,26 @@ class MainViewModel @Inject constructor(
     fun deleteDocument(doc: VehicleDocument) {
         viewModelScope.launch {
             documentRepo.delete(doc.id)
-            _message.value = UiMessage.Info("Deleted ${doc.title}")
+            _message.value = UiMessage.UndoDocument(doc)
+        }
+    }
+
+    fun restoreDocument(doc: VehicleDocument) {
+        viewModelScope.launch {
+            documentRepo.save(doc)
         }
     }
 
     fun deleteMaintenanceRule(rule: MaintenanceRule) {
         viewModelScope.launch {
             maintenanceRepo.deleteRule(rule.id)
-            _message.value = UiMessage.Info("Deleted schedule: ${rule.task}")
+            _message.value = UiMessage.UndoRule(rule)
+        }
+    }
+
+    fun restoreMaintenanceRule(rule: MaintenanceRule) {
+        viewModelScope.launch {
+            maintenanceRepo.saveRule(rule)
         }
     }
 

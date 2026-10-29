@@ -139,6 +139,19 @@ class AttachmentRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun deleteForOwner(ownerId: String) {
+        withContext(Dispatchers.IO) {
+            val list = db.attachments().forOwner(ownerId)
+            for (entity in list) {
+                db.attachments().delete(entity.id)
+                val file = File(storageDir, entity.relativePath)
+                if (file.exists()) {
+                    file.delete()
+                }
+            }
+        }
+    }
+
     override fun fileFor(attachment: Attachment): File = File(storageDir, attachment.relativePath)
 
     override suspend fun newCameraFile(): File = withContext(Dispatchers.IO) {

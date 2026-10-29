@@ -284,4 +284,24 @@ class CostTest {
         assertEquals(800L, CostSummarizer.distanceInPeriod(readings, D0, D0.plusDays(30)))
         assertNull(CostSummarizer.distanceInPeriod(listOf(reading(20, 10_800)), D0, D0.plusDays(30)))
     }
+
+    @Test fun `allTime sums across months and computes multi-segment total distance`() {
+        val e = listOf(
+            exp("1", 1, 6000, ExpenseCategory.FUEL, fuelId = "f1"),
+            exp("2", 2, 25000, ExpenseCategory.MAINTENANCE),
+            exp("3", 3, 80000, ExpenseCategory.LOAN_PAYMENT),
+            exp("4", 40, 1000, ExpenseCategory.TOLL), // next month
+        )
+        val readings = listOf(
+            reading(0, 10_000),
+            reading(20, 10_500), // +500 km in segment 1
+            reading(30, 100, newSeg = true),
+            reading(50, 400) // +300 km in segment 2
+        )
+        assertEquals(800L, CostSummarizer.totalTrackedDistanceKm(readings))
+        val runningAll = CostSummarizer.allTime(e, readings, CostView.RUNNING_COSTS)
+        assertEquals(32000L, runningAll.totalSen)
+        assertEquals(800L, runningAll.distanceKm)
+        assertEquals(40.0, runningAll.costPerKmSen!!, 0.001)
+    }
 }

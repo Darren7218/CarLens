@@ -59,6 +59,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun CostsScreen(
     monthlyCost: CostSummary?,
+    allTimeCost: CostSummary? = null,
     monthlyTrend: List<Pair<YearMonth, Long>> = emptyList(),
     selectedMonth: YearMonth = YearMonth.now(),
     allExpenses: List<Expense>,
@@ -74,13 +75,22 @@ fun CostsScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategoryFilter by remember { mutableStateOf<ExpenseCategory?>(null) }
+    var showAllTimeTransactions by remember { mutableStateOf(false) }
 
     val monthFormatter = remember { DateTimeFormatter.ofPattern("MMM yyyy") }
     val shortMonthFormatter = remember { DateTimeFormatter.ofPattern("MMM") }
     val currentYearMonth = remember { YearMonth.now() }
 
-    val filteredExpenses = remember(allExpenses, searchQuery, selectedCategoryFilter) {
-        allExpenses.filter { exp ->
+    val baseExpenses = remember(showAllTimeTransactions, monthlyCost, allExpenses, currentView) {
+        if (showAllTimeTransactions) {
+            allExpenses.filter { currentView.includes(it.category) }
+        } else {
+            monthlyCost?.expenses ?: emptyList()
+        }
+    }
+
+    val filteredExpenses = remember(baseExpenses, searchQuery, selectedCategoryFilter) {
+        baseExpenses.filter { exp ->
             val matchesCategory = selectedCategoryFilter == null || exp.category == selectedCategoryFilter
             val q = searchQuery.trim().lowercase()
             val matchesSearch = q.isBlank() ||
@@ -246,6 +256,27 @@ fun CostsScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                     }
+                    if (allTimeCost != null && allTimeCost.expenses.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "All-Time (${allTimeCost.expenses.size} txns)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            val allTimePerKm = allTimeCost.costPerKmSen?.let {
+                                " · ${Units.formatRmPerKm(it, settings.hideAmounts)}"
+                            } ?: ""
+                            Text(
+                                text = "${Units.formatRm(allTimeCost.totalSen, settings.hideAmounts)}$allTimePerKm",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
             }
 
@@ -390,11 +421,29 @@ fun CostsScreen(
             }
 
             Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = "Transactions (${filteredExpenses.size})",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Transactions (${filteredExpenses.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = !showAllTimeTransactions,
+                        onClick = { showAllTimeTransactions = false },
+                        label = { Text(selectedMonth.format(shortMonthFormatter)) }
+                    )
+                    FilterChip(
+                        selected = showAllTimeTransactions,
+                        onClick = { showAllTimeTransactions = true },
+                        label = { Text("All Time") }
+                    )
+                }
+            }
 
             if (allExpenses.size > 3 || searchQuery.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))

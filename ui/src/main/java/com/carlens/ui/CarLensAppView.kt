@@ -63,6 +63,7 @@ fun CarLensAppView(
     val selectedMonth by viewModel.selectedMonth.collectAsStateWithLifecycle()
     val monthlyCost by viewModel.monthlyCost.collectAsStateWithLifecycle()
     val currentMonthCost by viewModel.currentMonthCost.collectAsStateWithLifecycle()
+    val allTimeCost by viewModel.allTimeCost.collectAsStateWithLifecycle()
     val monthlyTrend by viewModel.monthlyTrend.collectAsStateWithLifecycle()
     val allExpenses by viewModel.allExpenses.collectAsStateWithLifecycle()
     val costView by viewModel.costView.collectAsStateWithLifecycle()
@@ -159,6 +160,14 @@ fun CarLensAppView(
         }
     }
 
+    val exportServicesCsvLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        if (uri != null) {
+            viewModel.exportServicesCsv(uri.toString())
+        }
+    }
+
     // Snackbar handling for info & undo
     LaunchedEffect(message) {
         when (val msg = message) {
@@ -203,6 +212,28 @@ fun CarLensAppView(
                 }
                 viewModel.clearMessage()
             }
+            is UiMessage.UndoDocument -> {
+                val result = snackbarHostState.showSnackbar(
+                    message = "Deleted ${msg.doc.title}",
+                    actionLabel = "UNDO",
+                    duration = SnackbarDuration.Short
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    viewModel.restoreDocument(msg.doc)
+                }
+                viewModel.clearMessage()
+            }
+            is UiMessage.UndoRule -> {
+                val result = snackbarHostState.showSnackbar(
+                    message = "Deleted schedule: ${msg.rule.task}",
+                    actionLabel = "UNDO",
+                    duration = SnackbarDuration.Short
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    viewModel.restoreMaintenanceRule(msg.rule)
+                }
+                viewModel.clearMessage()
+            }
             null -> Unit
         }
     }
@@ -242,6 +273,7 @@ fun CarLensAppView(
                     },
                     onUpdateMileageClick = { showUpdateMileageDialog = true },
                     onViewOdometerHistoryClick = { showOdometerHistoryDialog = true },
+                    onSelectVehicle = { viewModel.selectVehicle(it) },
                     onSelectVehicleClick = { currentScreen = Screen.GARAGE },
                     onNavigateToCare = { currentScreen = Screen.CARE },
                     onNavigateToCosts = { currentScreen = Screen.COSTS },
@@ -302,6 +334,7 @@ fun CarLensAppView(
 
                 Screen.COSTS -> CostsScreen(
                     monthlyCost = monthlyCost,
+                    allTimeCost = allTimeCost,
                     monthlyTrend = monthlyTrend,
                     selectedMonth = selectedMonth,
                     allExpenses = allExpenses,
@@ -382,6 +415,9 @@ fun CarLensAppView(
                     onExportExpensesCsvClick = {
                         exportExpensesCsvLauncher.launch("carlens_expenses_${selectedVehicle?.name ?: "car"}.csv")
                     },
+                    onExportServicesCsvClick = {
+                        exportServicesCsvLauncher.launch("carlens_services_${selectedVehicle?.name ?: "car"}.csv")
+                    },
                     onEditBudgetClick = { showBudgetDialog = true },
                     onThemeModeChanged = { viewModel.setThemeMode(it) },
                     onHidePlateChanged = { viewModel.setHidePlate(it) },
@@ -409,6 +445,7 @@ fun CarLensAppView(
                 stationSuggestions = stationSuggestions,
                 saveFuelEntry = viewModel.saveFuelEntry,
                 attachmentRepo = viewModel.attachmentRepo,
+                settingsRepo = viewModel.settingsRepo,
                 onDismiss = {
                     showAddFuelDialog = false
                     fuelToEdit = null
@@ -471,6 +508,7 @@ fun CarLensAppView(
                 taskSuggestions = taskSuggestions,
                 recordService = viewModel.recordService,
                 attachmentRepo = viewModel.attachmentRepo,
+                settingsRepo = viewModel.settingsRepo,
                 onDismiss = {
                     showAddServiceDialog = false
                     servicePreSelectedRule = null

@@ -29,6 +29,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,12 +47,14 @@ import com.carlens.domain.model.FuelEntry
 import com.carlens.domain.model.FuelEntryInput
 import com.carlens.domain.model.TankStatus
 import com.carlens.domain.repository.AttachmentRepository
+import com.carlens.domain.repository.SettingsRepository
 import com.carlens.domain.usecase.SaveFuelEntry
 import com.carlens.domain.usecase.SaveResult
 import com.carlens.ui.components.AttachmentSection
 import com.carlens.ui.components.DatePickerField
 import com.carlens.ui.components.SuggestionChipsRow
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.time.LocalDate
 import java.util.UUID
 
@@ -65,11 +68,13 @@ fun AddFuelDialog(
     entryToEdit: FuelEntry? = null,
     saveFuelEntry: SaveFuelEntry,
     attachmentRepo: AttachmentRepository,
+    settingsRepo: SettingsRepository? = null,
     onDismiss: () -> Unit,
     onSuccess: () -> Unit
 ) {
     val isEditing = entryToEdit != null
-    val tempOwnerId = remember { entryToEdit?.id ?: "draft_fuel_${UUID.randomUUID()}" }
+    val draftKey = "fuel_$vehicleId"
+    var tempOwnerId by remember { mutableStateOf(entryToEdit?.id ?: "draft_fuel_${UUID.randomUUID()}") }
 
     var selectedDate by remember { mutableStateOf(entryToEdit?.time?.localDate ?: LocalDate.now()) }
     var odoText by remember { mutableStateOf(entryToEdit?.odometerKm?.toString() ?: "") }
@@ -99,6 +104,55 @@ fun AddFuelDialog(
     }
 
     val scope = rememberCoroutineScope()
+    var draftLoaded by remember { mutableStateOf(isEditing) }
+
+    LaunchedEffect(vehicleId) {
+        if (!isEditing && settingsRepo != null) {
+            val raw = settingsRepo.loadDraft(draftKey)
+            if (!raw.isNullOrBlank()) {
+                runCatching {
+                    val obj = JSONObject(raw)
+                    obj.optString("odo").takeIf { it.isNotBlank() }?.let { odoText = it }
+                    obj.optString("litres").takeIf { it.isNotBlank() }?.let { litresText = it }
+                    obj.optString("totalPaid").takeIf { it.isNotBlank() }?.let { totalPaidText = it }
+                    obj.optString("station").takeIf { it.isNotBlank() }?.let { stationText = it }
+                    obj.optString("fuelType").takeIf { it.isNotBlank() }?.let { fuelTypeText = it }
+                    obj.optString("notes").takeIf { it.isNotBlank() }?.let { notesText = it }
+                }
+            }
+            draftLoaded = true
+        }
+    }
+
+    LaunchedEffect(odoText, litresText, totalPaidText, stationText, fuelTypeText, notesText, draftLoaded) {
+        if (!isEditing && draftLoaded && settingsRepo != null) {
+            if (odoText.isBlank() && litresText.isBlank() && totalPaidText.isBlank() && notesText.isBlank()) {
+                settingsRepo.saveDraft(draftKey, null)
+            } else {
+                val json = JSONObject().apply {
+                    put("odo", odoText)
+                    put("litres", litresText)
+                    put("totalPaid", totalPaidText)
+                    put("station", stationText)
+                    put("fuelType", fuelTypeText)
+                    put("notes", notesText)
+                }.toString()
+                settingsRepo.saveDraft(draftKey, json)
+            }
+        }
+    }
+
+    fun handleDismiss(clearTextDraft: Boolean) {
+        scope.launch {
+            if (!isEditing) {
+                attachmentRepo.deleteForOwner(tempOwnerId)
+                if (clearTextDraft) {
+                    settingsRepo?.saveDraft(draftKey, null)
+                }
+            }
+            onDismiss()
+        }
+    }
 
     val totalSen = Units.parseMoneyToSen(totalPaidText)
     val volumeMl = Units.parseLitresToMl(litresText)
@@ -160,8 +214,10 @@ fun AddFuelDialog(
                 is SaveResult.Saved -> {
                     if (!isEditing) {
                         attachmentRepo.reassign(tempOwnerId, result.id)
+                        settingsRepo?.saveDraft(draftKey, null)
                     }
                     if (addAnother) {
+                        tempOwnerId = "draft_fuel_${UUID.randomUUID()}"
                         odoText = ""
                         litresText = ""
                         totalPaidText = ""
@@ -182,7 +238,7 @@ fun AddFuelDialog(
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { handleDismiss(clearTextDraft = false) },
         title = {
             Text(
                 text = if (isEditing) "Edit Fuel Entry" else "Add Fuel",
@@ -527,7 +583,7 @@ fun AddFuelDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = { handleDismiss(clearTextDraft = true) }) {
                 Text("Cancel")
             }
         }

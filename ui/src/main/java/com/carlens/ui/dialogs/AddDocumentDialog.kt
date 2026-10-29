@@ -55,6 +55,7 @@ fun AddDocumentDialog(
 ) {
     val isEditing = docToEdit != null
     val docId = remember { docToEdit?.id ?: UUID.randomUUID().toString() }
+    val tempOwnerId = remember { docToEdit?.id ?: "draft_doc_${UUID.randomUUID()}" }
 
     var selectedType by remember { mutableStateOf(docToEdit?.type ?: DocumentType.INSURANCE) }
     var titleText by remember { mutableStateOf(docToEdit?.title ?: "") }
@@ -99,6 +100,9 @@ fun AddDocumentDialog(
         scope.launch {
             when (val res = saveDocument(doc)) {
                 is SaveResult.Saved -> {
+                    if (!isEditing) {
+                        attachmentRepo.reassign(tempOwnerId, docId)
+                    }
                     isSaving = false
                     onSuccess()
                 }
@@ -113,8 +117,17 @@ fun AddDocumentDialog(
         }
     }
 
+    fun handleDismiss() {
+        scope.launch {
+            if (!isEditing) {
+                attachmentRepo.deleteForOwner(tempOwnerId)
+            }
+            onDismiss()
+        }
+    }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { handleDismiss() },
         title = {
             Text(
                 text = if (isEditing) "Edit Document / Renewal" else "Add Document / Renewal",
@@ -245,7 +258,7 @@ fun AddDocumentDialog(
                 Spacer(modifier = Modifier.height(10.dp))
                 AttachmentSection(
                     ownerType = AttachmentOwner.DOCUMENT,
-                    ownerId = docId,
+                    ownerId = tempOwnerId,
                     attachmentRepo = attachmentRepo
                 )
 
@@ -274,7 +287,7 @@ fun AddDocumentDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = { handleDismiss() }) {
                 Text("Cancel")
             }
         }

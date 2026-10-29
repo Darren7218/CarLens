@@ -97,6 +97,8 @@ interface AttachmentRepository {
     /** Moves attachments created against a temporary owner (unsaved form) to the saved record. */
     suspend fun reassign(fromOwnerId: String, toOwnerId: String)
     suspend fun delete(id: String)
+    /** Deletes all attachments belonging to [ownerId] (e.g. when a draft form is cancelled). */
+    suspend fun deleteForOwner(ownerId: String)
     fun fileFor(attachment: Attachment): File
     /** Creates an empty private file for the camera to write into; returns its absolute path. */
     suspend fun newCameraFile(): File
@@ -152,5 +154,6 @@ interface BackupRepository {
     suspend fun discardStaged(token: String)
     suspend fun exportFuelCsv(vehicleId: String, destinationUri: String)
     suspend fun exportExpensesCsv(vehicleId: String, destinationUri: String)
+    suspend fun exportServicesCsv(vehicleId: String, destinationUri: String)
     suspend fun latestRecoveryBackup(): File?
 }

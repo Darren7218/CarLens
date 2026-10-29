@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,12 +53,14 @@ import com.carlens.domain.model.ServiceItemInput
 import com.carlens.domain.model.ServiceRecord
 import com.carlens.domain.model.ServiceRecordInput
 import com.carlens.domain.repository.AttachmentRepository
+import com.carlens.domain.repository.SettingsRepository
 import com.carlens.domain.usecase.RecordService
 import com.carlens.domain.usecase.SaveResult
 import com.carlens.ui.components.AttachmentSection
 import com.carlens.ui.components.DatePickerField
 import com.carlens.ui.components.SuggestionChipsRow
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.time.LocalDate
 import java.util.UUID
 
@@ -80,10 +83,12 @@ fun AddServiceDialog(
     recordToEdit: ServiceRecord? = null,
     recordService: RecordService,
     attachmentRepo: AttachmentRepository,
+    settingsRepo: SettingsRepository? = null,
     onDismiss: () -> Unit,
     onSuccess: () -> Unit
 ) {
     val isEditing = recordToEdit != null
+    val draftKey = "service_$vehicleId"
     val tempOwnerId = remember { recordToEdit?.id ?: "draft_service_${UUID.randomUUID()}" }
 
     var selectedDate by remember { mutableStateOf(recordToEdit?.time?.localDate ?: LocalDate.now()) }
@@ -131,6 +136,53 @@ fun AddServiceDialog(
     var isSaving by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
+    var draftLoaded by remember { mutableStateOf(isEditing || initialRule != null) }
+
+    LaunchedEffect(vehicleId) {
+        if (!isEditing && initialRule == null && settingsRepo != null) {
+            val raw = settingsRepo.loadDraft(draftKey)
+            if (!raw.isNullOrBlank()) {
+                runCatching {
+                    val obj = JSONObject(raw)
+                    obj.optString("title").takeIf { it.isNotBlank() }?.let { titleText = it }
+                    obj.optString("workshop").takeIf { it.isNotBlank() }?.let { workshopText = it }
+                    obj.optString("odometer").takeIf { it.isNotBlank() }?.let { odometerText = it }
+                    obj.optString("totalBill").takeIf { it.isNotBlank() }?.let { totalBillText = it }
+                    obj.optString("notes").takeIf { it.isNotBlank() }?.let { notesText = it }
+                }
+            }
+            draftLoaded = true
+        }
+    }
+
+    LaunchedEffect(titleText, workshopText, odometerText, totalBillText, notesText, draftLoaded) {
+        if (!isEditing && initialRule == null && draftLoaded && settingsRepo != null) {
+            if (workshopText.isBlank() && totalBillText.isBlank() && notesText.isBlank()) {
+                settingsRepo.saveDraft(draftKey, null)
+            } else {
+                val json = JSONObject().apply {
+                    put("title", titleText)
+                    put("workshop", workshopText)
+                    put("odometer", odometerText)
+                    put("totalBill", totalBillText)
+                    put("notes", notesText)
+                }.toString()
+                settingsRepo.saveDraft(draftKey, json)
+            }
+        }
+    }
+
+    fun handleDismiss(clearTextDraft: Boolean) {
+        scope.launch {
+            if (!isEditing) {
+                attachmentRepo.deleteForOwner(tempOwnerId)
+                if (clearTextDraft) {
+                    settingsRepo?.saveDraft(draftKey, null)
+                }
+            }
+            onDismiss()
+        }
+    }
 
     val sumOfItemsSen = items.sumOf { Units.parseMoneyToSen(it.costText) ?: 0L }
 
@@ -178,6 +230,7 @@ fun AddServiceDialog(
                 is SaveResult.Saved -> {
                     if (!isEditing) {
                         attachmentRepo.reassign(tempOwnerId, result.id)
+                        settingsRepo?.saveDraft(draftKey, null)
                     }
                     onSuccess()
                 }
@@ -188,7 +241,7 @@ fun AddServiceDialog(
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { handleDismiss(clearTextDraft = false) },
         title = {
             Text(
                 text = if (isEditing) "Edit Service Record" else "Record Service",
@@ -480,7 +533,7 @@ fun AddServiceDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = { handleDismiss(clearTextDraft = true) }) {
                 Text("Cancel")
             }
         }

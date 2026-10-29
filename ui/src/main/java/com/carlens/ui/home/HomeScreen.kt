@@ -19,8 +19,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.Speed
@@ -28,12 +31,19 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,6 +80,7 @@ fun HomeScreen(
     onAddFuelClick: () -> Unit,
     onUpdateMileageClick: () -> Unit,
     onViewOdometerHistoryClick: () -> Unit,
+    onSelectVehicle: (Vehicle) -> Unit = {},
     onSelectVehicleClick: () -> Unit,
     onNavigateToCare: () -> Unit,
     onNavigateToCosts: () -> Unit,
@@ -78,6 +89,7 @@ fun HomeScreen(
     onRenewDocumentClick: (VehicleDocument) -> Unit
 ) {
     val scrollState = rememberScrollState()
+    var showVehiclePicker by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -86,34 +98,100 @@ fun HomeScreen(
             .verticalScroll(scrollState)
             .padding(16.dp)
     ) {
-        // Vehicle Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .clickable(onClick = onSelectVehicleClick)
-                .padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = selectedVehicle?.name ?: "No Vehicle Selected",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+        // Vehicle Header with Quick Switcher
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable {
+                        if (allVehicles.isNotEmpty()) {
+                            showVehiclePicker = true
+                        } else {
+                            onSelectVehicleClick()
+                        }
+                    }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = selectedVehicle?.name ?: "No Vehicle Selected",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        if (allVehicles.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = "Switch Vehicle",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (selectedVehicle != null) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "${selectedVehicle.make} ${selectedVehicle.model} ${selectedVehicle.year ?: ""}".trim(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 if (selectedVehicle != null) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "${selectedVehicle.make} ${selectedVehicle.model} ${selectedVehicle.year ?: ""}".trim(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    PlateBadge(plate = selectedVehicle.plate, hidePlate = settings.hidePlate)
                 }
             }
-            if (selectedVehicle != null) {
-                PlateBadge(plate = selectedVehicle.plate, hidePlate = settings.hidePlate)
+
+            DropdownMenu(
+                expanded = showVehiclePicker,
+                onDismissRequest = { showVehiclePicker = false }
+            ) {
+                allVehicles.forEach { vehicle ->
+                    val isSelected = vehicle.id == selectedVehicle?.id
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(
+                                    text = vehicle.name,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                                Text(
+                                    text = "${vehicle.make} ${vehicle.model}".trim(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (isSelected) Icons.Default.Check else Icons.Default.DirectionsCar,
+                                contentDescription = null,
+                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        onClick = {
+                            showVehiclePicker = false
+                            onSelectVehicle(vehicle)
+                        }
+                    )
+                }
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = "Manage Garage / Add Car…",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
+                    onClick = {
+                        showVehiclePicker = false
+                        onSelectVehicleClick()
+                    }
+                )
             }
         }
 

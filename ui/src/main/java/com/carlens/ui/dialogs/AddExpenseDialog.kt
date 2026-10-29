@@ -57,6 +57,7 @@ fun AddExpenseDialog(
 ) {
     val isEditing = expenseToEdit != null
     val expenseId = remember { expenseToEdit?.id ?: UUID.randomUUID().toString() }
+    val tempOwnerId = remember { expenseToEdit?.id ?: "draft_expense_${UUID.randomUUID()}" }
 
     var selectedDate by remember { mutableStateOf(expenseToEdit?.time?.localDate ?: LocalDate.now()) }
     var amountText by remember {
@@ -120,15 +121,29 @@ fun AddExpenseDialog(
             val res = saveExpense(expense, confirmed = confirmed)
             isSaving = false
             when (res) {
-                is SaveResult.Saved -> onSuccess()
+                is SaveResult.Saved -> {
+                    if (!isEditing) {
+                        attachmentRepo.reassign(tempOwnerId, expenseId)
+                    }
+                    onSuccess()
+                }
                 is SaveResult.NeedsConfirmation -> warnings = res.warnings
                 is SaveResult.Invalid -> errors = res.errors
             }
         }
     }
 
+    fun handleDismiss() {
+        scope.launch {
+            if (!isEditing) {
+                attachmentRepo.deleteForOwner(tempOwnerId)
+            }
+            onDismiss()
+        }
+    }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { handleDismiss() },
         title = {
             Text(
                 text = if (isEditing) "Edit Expense" else "Add Expense",
@@ -219,7 +234,7 @@ fun AddExpenseDialog(
                 Spacer(modifier = Modifier.height(10.dp))
                 AttachmentSection(
                     ownerType = AttachmentOwner.EXPENSE,
-                    ownerId = expenseId,
+                    ownerId = tempOwnerId,
                     attachmentRepo = attachmentRepo
                 )
 
@@ -255,7 +270,7 @@ fun AddExpenseDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = { handleDismiss() }) {
                 Text("Cancel")
             }
         }

@@ -421,6 +421,46 @@ class BackupRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun exportServicesCsv(vehicleId: String, destinationUri: String): Unit = withContext(Dispatchers.IO) {
+        val records = db.services().all().filter { it.vehicleId == vehicleId }
+        val readings = db.odometer().list(vehicleId).associateBy { it.id }
+        val expenses = db.expenses().list(vehicleId).filter { it.serviceRecordId != null }.associateBy { it.serviceRecordId!! }
+        val allItems = db.services().allItems().groupBy { it.serviceRecordId }
+
+        openOutputStream(destinationUri).use { out ->
+            out.bufferedWriter().use { writer ->
+                writer.write("Date,Odometer_km,Category,Title,Workshop,Total_RM,Items_Summary,Notes\n")
+                records.sortedBy { it.epochMillis }.forEach { r ->
+                    val date = LocalDate.ofEpochDay(r.localDate)
+                    val km = r.odometerReadingId?.let { readings[it]?.km }?.toString() ?: ""
+                    val totalSen = expenses[r.id]?.amountSen ?: 0L
+                    val totalRm = totalSen / 100.0
+                    val itemsSummary = (allItems[r.id] ?: emptyList())
+                        .sortedBy { it.position }
+                        .joinToString("; ") { item ->
+                            buildString {
+                                append(item.task)
+                                if (item.part.isNotBlank()) append(" (${item.part})")
+                                if (item.costSen != null) append(" [RM ${String.format(Locale.US, "%.2f", item.costSen / 100.0)}]")
+                            }
+                        }
+                    writer.write(
+                        listOf(
+                            date.toString(),
+                            km,
+                            r.category,
+                            "\"${r.title.replace("\"", "\"\"")}\"",
+                            "\"${r.workshop.replace("\"", "\"\"")}\"",
+                            String.format(Locale.US, "%.2f", totalRm),
+                            "\"${itemsSummary.replace("\"", "\"\"")}\"",
+                            "\"${r.notes.replace("\"", "\"\"")}\""
+                        ).joinToString(",") + "\n"
+                    )
+                }
+            }
+        }
+    }
+
     private fun openInputStream(sourceUri: String): InputStream {
         val uri = Uri.parse(sourceUri)
         val stream = if (uri.scheme == "file" && uri.path != null) {

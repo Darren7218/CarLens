@@ -49,6 +49,26 @@ data class MaintenanceStatus(
             daysRemaining?.let { add(if (it >= 0) "in $it days" else "${-it} days ago") }
             kmRemaining?.let { add(if (it >= 0) "in ${Units.formatKm(it)}" else "${Units.formatKm(-it)} over") }
         }.joinToString(" · ").ifEmpty { "No threshold set" }
+
+    /**
+     * Elapsed fraction (0.0 to 1.0) of whichever interval (date or mileage) is closer to due.
+     */
+    val progressFraction: Float?
+        get() {
+            val dateFraction = if (dueDate != null && daysRemaining != null && (rule.intervalMonths ?: 0) > 0) {
+                val totalDays = ChronoUnit.DAYS.between(lastDoneDate, dueDate).coerceAtLeast(1L)
+                val elapsedDays = totalDays - daysRemaining
+                (elapsedDays.toFloat() / totalDays.toFloat()).coerceIn(0f, 1f)
+            } else null
+
+            val kmFraction = if (kmRemaining != null && (rule.intervalKm ?: 0L) > 0L) {
+                val intervalKm = rule.intervalKm!!.coerceAtLeast(1L)
+                val elapsedKm = intervalKm - kmRemaining
+                (elapsedKm.toFloat() / intervalKm.toFloat()).coerceIn(0f, 1f)
+            } else null
+
+            return listOfNotNull(dateFraction, kmFraction).maxOrNull()
+        }
 }
 
 data class DocumentStatus(

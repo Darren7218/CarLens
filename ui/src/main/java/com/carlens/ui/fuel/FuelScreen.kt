@@ -1,11 +1,9 @@
 package com.carlens.ui.fuel
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,27 +13,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.LocalGasStation
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.LocalGasStation
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,321 +39,432 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.carlens.domain.calc.EconomyInterval
-import com.carlens.domain.calc.FuelAnomaly
 import com.carlens.domain.calc.FuelEconomyReport
+import com.carlens.domain.calc.TrendDirection
 import com.carlens.domain.calc.Units
 import com.carlens.domain.model.AppSettings
 import com.carlens.domain.model.FuelEntry
 import com.carlens.domain.model.TankStatus
 import com.carlens.ui.components.AttachmentCountBadge
+import com.carlens.ui.components.CarLensCard
+import com.carlens.ui.components.CarLensFilterChip
+import com.carlens.ui.components.CategoryTag
+import com.carlens.ui.components.EmptyStateCard
+import com.carlens.ui.components.FuelEconomyChart
+import com.carlens.ui.components.HeroAccentCard
+import com.carlens.ui.components.SectionHeader
+import com.carlens.ui.components.StatusPillDot
+import com.carlens.ui.components.UrgencyStripCard
 import com.carlens.ui.theme.StatusAmber
+import com.carlens.ui.theme.StatusGreen
+import com.carlens.ui.theme.StatusMuted
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @Composable
 fun FuelScreen(
     fuelEntries: List<FuelEntry>,
     fuelEconomy: FuelEconomyReport,
-    attachmentCounts: Map<String, Int> = emptyMap(),
     settings: AppSettings,
+    attachmentCounts: Map<String, Int>,
     onEditEntry: (FuelEntry) -> Unit,
     onDeleteEntry: (FuelEntry) -> Unit,
-    onAddFuelClick: () -> Unit
+    onAddFuelClick: () -> Unit,
 ) {
-    var selectedFuelTypeFilter by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+    var selectedFuelType by remember { mutableStateOf<String?>(null) }
+    var selectedStation by remember { mutableStateOf<String?>(null) }
 
-    val distinctFuelTypes = remember(fuelEntries) {
-        fuelEntries.map { it.fuelType }.filter { it.isNotBlank() }.distinct()
+    val availableFuelTypes = remember(fuelEntries) {
+        fuelEntries.map { it.fuelType.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
+    }
+    val availableStations = remember(fuelEntries) {
+        fuelEntries.map { it.station.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
+    }
+    val anomalyIds = remember(fuelEconomy.anomalies) {
+        fuelEconomy.anomalies.map { it.entryId }.toSet()
     }
 
-    val anomaliesByEntryId = remember(fuelEconomy.anomalies) {
-        fuelEconomy.anomalies.groupBy { it.entryId }
-    }
-
-    val filteredEntries = remember(fuelEntries, selectedFuelTypeFilter, searchQuery) {
+    val filteredEntries = remember(fuelEntries, searchQuery, selectedFuelType, selectedStation) {
         fuelEntries.filter { entry ->
-            val matchesType = selectedFuelTypeFilter == null || entry.fuelType == selectedFuelTypeFilter
             val q = searchQuery.trim()
             val matchesQuery = q.isEmpty() ||
                 entry.station.contains(q, ignoreCase = true) ||
                 entry.fuelType.contains(q, ignoreCase = true) ||
                 entry.notes.contains(q, ignoreCase = true) ||
-                entry.time.localDate.toString().contains(q)
-            matchesType && matchesQuery
+                entry.odometerKm.toString().contains(q)
+            val matchesFuel = selectedFuelType == null || entry.fuelType.equals(selectedFuelType, ignoreCase = true)
+            val matchesStation = selectedStation == null || entry.station.equals(selectedStation, ignoreCase = true)
+            matchesQuery && matchesFuel && matchesStation
         }
     }
 
-    val validIntervals = remember(fuelEconomy.intervals) {
-        fuelEconomy.intervals.filter { !it.suspicious }.takeLast(6)
-    }
+    val dateTimeFmt = remember { DateTimeFormatter.ofPattern("d MMM yyyy · HH:mm", Locale.US) }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 96.dp)
     ) {
         item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Fuel & Economy",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Economy Overview Summary Card
-            Card(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "Fuel & Economy",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "${fuelEntries.size} ${if (fuelEntries.size == 1) "fill-up" else "fill-ups"} recorded",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                FilledTonalButton(
+                    onClick = onAddFuelClick,
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Overall Economy",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = fuelEconomy.overallKmPerL?.let { "${Units.formatKmPerL(it)} km/L" } ?: "—",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        fuelEconomy.overallLPer100?.let {
+                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add fuel")
+                }
+            }
+        }
+
+        // Overall Fuel Economy Hero Card
+        item {
+            val overallKmPerL = fuelEconomy.overallKmPerL
+            val overallL100 = fuelEconomy.overallLPer100
+            val costPerKm = fuelEconomy.costPerKmSen
+            val best = fuelEconomy.bestInterval
+            val trend = fuelEconomy.trend
+
+            HeroAccentCard {
+                if (overallKmPerL != null && overallL100 != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "${Units.formatLPer100(it)} L/100 km",
-                                style = MaterialTheme.typography.bodySmall,
+                                text = "OVERALL EFFICIENCY",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Row(
+                                verticalAlignment = Alignment.Bottom,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = Units.formatKmPerL(overallKmPerL),
+                                    style = MaterialTheme.typography.displayLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "km/L",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(bottom = 5.dp)
+                                )
+                            }
+                            Text(
+                                text = "${Units.formatLPer100(overallL100)} L/100 km",
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+
+                        if (costPerKm != null) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.End
+                                ) {
+                                    Text(
+                                        text = "Fuel cost/km",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = Units.formatRmPerKm(costPerKm, settings.hideAmounts),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
                     }
 
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Cost Per Km",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FuelMetricMiniTile(
+                            label = "Best",
+                            value = best?.let { "${Units.formatKmPerL(it.kmPerL)} km/L" } ?: "—",
+                            modifier = Modifier.weight(1f)
                         )
-                        Spacer(modifier = Modifier.height(2.dp))
+                        FuelMetricMiniTile(
+                            label = "Tracked dist",
+                            value = Units.formatKm(fuelEconomy.totalValidDistanceKm),
+                            modifier = Modifier.weight(1f)
+                        )
+                        FuelMetricMiniTile(
+                            label = "Fuel burned",
+                            value = Units.formatLitres(fuelEconomy.totalValidVolumeMl),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    if (trend != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        val trendColor = when (trend.direction) {
+                            TrendDirection.DECREASED -> StatusGreen
+                            TrendDirection.INCREASED -> StatusAmber
+                            TrendDirection.STABLE -> MaterialTheme.colorScheme.primary
+                        }
                         Text(
-                            text = fuelEconomy.costPerKmSen?.let {
-                                Units.formatRmPerKm(it, settings.hideAmounts)
-                            } ?: "—",
+                            text = trend.message,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = trendColor,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "FULL-TO-FULL TRACKING",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Need 2 Full Tank Fill-ups",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${Units.formatKm(fuelEconomy.totalValidDistanceKm)} tracked",
+                            text = "The first full fill-up sets your baseline. Partial fill-ups between two full tanks are combined automatically.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
+        }
 
-            // Visual Fuel Economy Interval Chart (last up to 6 intervals)
-            if (validIntervals.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Recent Full-to-Full Intervals (km/L)",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
+        // Interactive Economy Curve + Text Summary
+        item {
+            CarLensCard {
+                SectionHeader(
+                    title = "Economy History",
+                    subtitle = "Full-to-full intervals"
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                FuelEconomyChart(
+                    intervals = fuelEconomy.intervals,
+                    overallKmPerL = fuelEconomy.overallKmPerL,
+                    hideAmounts = settings.hideAmounts,
+                    onInspectClosingEntry = { entryId ->
+                        fuelEntries.firstOrNull { it.id == entryId }?.let(onEditEntry)
+                    }
+                )
+            }
+        }
+
+        // Anomaly Warnings
+        if (fuelEconomy.anomalies.isNotEmpty()) {
+            item {
+                UrgencyStripCard(accentColor = StatusAmber) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Warning,
+                            contentDescription = null,
+                            tint = StatusAmber,
+                            modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        val maxKmPerL = validIntervals.maxOf { it.kmPerL }.coerceAtLeast(1.0)
-                        validIntervals.forEach { iv ->
-                            val fraction = (iv.kmPerL / maxKmPerL).toFloat().coerceIn(0.05f, 1f)
-                            Column(modifier = Modifier.padding(vertical = 3.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "${iv.endDate} (${Units.formatKm(iv.distanceKm)})",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = "${Units.formatKmPerL(iv.kmPerL)} km/L · ${Units.formatLPer100(iv.lPer100Km)} L/100km",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(3.dp))
-                                LinearProgressIndicator(
-                                    progress = { fraction },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .clip(RoundedCornerShape(3.dp)),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                                )
-                            }
-                        }
+                        Text(
+                            text = "Check ${fuelEconomy.anomalies.size} fill-up reading${if (fuelEconomy.anomalies.size > 1) "s" else ""}",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = StatusAmber
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    fuelEconomy.anomalies.take(3).forEach { anomaly ->
+                        Text(
+                            text = "• ${anomaly.message}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }
+        }
 
-            // Global Anomaly Banner if any entry has an issue
-            if (fuelEconomy.anomalies.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(
-                        containerColor = StatusAmber.copy(alpha = 0.16f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = StatusAmber,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "${fuelEconomy.anomalies.size} fill-up anomaly detected",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        fuelEconomy.anomalies.forEach { anomaly ->
-                            val targetEntry = fuelEntries.firstOrNull { it.id == anomaly.entryId }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "• ${anomaly.message}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                if (targetEntry != null) {
-                                    TextButton(onClick = { onEditEntry(targetEntry) }) {
-                                        Text("Fix")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Search & Filter Controls
-            if (fuelEntries.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search station, fuel type, notes, or date…") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear search")
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+        // Timeline Section Header & Filters
+        if (fuelEntries.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Fill-up Timeline",
+                    subtitle = "Tap any record to inspect or edit"
                 )
             }
 
-            // Fuel Type Filter chips
-            if (distinctFuelTypes.size > 1) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = selectedFuelTypeFilter == null,
-                        onClick = { selectedFuelTypeFilter = null },
-                        label = { Text("All") }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search station, fuel type, odometer, or notes") },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.Search, contentDescription = null)
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Rounded.Close, contentDescription = "Clear search")
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    distinctFuelTypes.forEach { type ->
-                        FilterChip(
-                            selected = selectedFuelTypeFilter == type,
-                            onClick = { selectedFuelTypeFilter = if (selectedFuelTypeFilter == type) null else type },
-                            label = { Text(type) }
-                        )
+
+                    if (availableFuelTypes.isNotEmpty() || availableStations.isNotEmpty()) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                CarLensFilterChip(
+                                    selected = selectedFuelType == null && selectedStation == null,
+                                    onClick = {
+                                        selectedFuelType = null
+                                        selectedStation = null
+                                    },
+                                    label = "All (${fuelEntries.size})"
+                                )
+                            }
+                            items(availableFuelTypes) { type ->
+                                CarLensFilterChip(
+                                    selected = selectedFuelType == type,
+                                    onClick = {
+                                        selectedFuelType = if (selectedFuelType == type) null else type
+                                    },
+                                    label = type
+                                )
+                            }
+                            items(availableStations) { station ->
+                                CarLensFilterChip(
+                                    selected = selectedStation == station,
+                                    onClick = {
+                                        selectedStation = if (selectedStation == station) null else station
+                                    },
+                                    label = station
+                                )
+                            }
+                        }
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Fill-up History (${filteredEntries.size})",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
         }
 
         if (filteredEntries.isEmpty()) {
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = if (fuelEntries.isEmpty()) "No fuel fill-ups recorded yet."
-                            else "No fill-ups match your search filter.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                EmptyStateCard(
+                    icon = Icons.Rounded.LocalGasStation,
+                    title = if (fuelEntries.isEmpty()) "No fill-ups recorded yet" else "No matching fill-ups",
+                    subtitle = if (fuelEntries.isEmpty()) {
+                        "Record your first fill-up in seconds — CarLens remembers your last station and fuel grade."
+                    } else {
+                        "Try clearing your search or station/fuel filters."
+                    },
+                    actionLabel = if (fuelEntries.isEmpty()) "Add first fill-up" else "Clear filters",
+                    onAction = if (fuelEntries.isEmpty()) {
+                        onAddFuelClick
+                    } else {
+                        {
+                            searchQuery = ""
+                            selectedFuelType = null
+                            selectedStation = null
+                        }
                     }
-                }
+                )
             }
         } else {
             items(filteredEntries, key = { it.id }) { entry ->
                 FuelEntryCard(
                     entry = entry,
-                    economyInterval = fuelEconomy.economyByClosingEntry[entry.id],
-                    anomalies = anomaliesByEntryId[entry.id] ?: emptyList(),
+                    interval = fuelEconomy.economyByClosingEntry[entry.id],
+                    isAnomaly = entry.id in anomalyIds,
                     attachmentCount = attachmentCounts[entry.id] ?: 0,
-                    settings = settings,
-                    onEdit = { onEditEntry(entry) },
+                    hideAmounts = settings.hideAmounts,
+                    dateTimeText = entry.time.localDateTime.format(dateTimeFmt),
+                    onClick = { onEditEntry(entry) },
                     onDelete = { onDeleteEntry(entry) }
                 )
             }
         }
+    }
+}
 
-        item {
-            Spacer(modifier = Modifier.height(40.dp))
+@Composable
+private fun FuelMetricMiniTile(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -365,210 +472,206 @@ fun FuelScreen(
 @Composable
 private fun FuelEntryCard(
     entry: FuelEntry,
-    economyInterval: EconomyInterval?,
-    anomalies: List<FuelAnomaly>,
+    interval: EconomyInterval?,
+    isAnomaly: Boolean,
     attachmentCount: Int,
-    settings: AppSettings,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit
+    hideAmounts: Boolean,
+    dateTimeText: String,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onEdit),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    val totalSen = entry.totalSen
+    val unitPriceMilli = entry.unitPriceMilliSen
+    val derivedUnitPrice = unitPriceMilli ?: if (totalSen != null && entry.volumeMl > 0) {
+        Units.unitPriceMilliSen(totalSen, entry.volumeMl)
+    } else null
+
+    CarLensCard(
+        onClick = onClick,
+        borderColor = if (isAnomaly) StatusAmber.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.LocalGasStation,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = entry.station.ifBlank { "Fuel Entry" },
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (attachmentCount > 0) {
-                                Spacer(modifier = Modifier.width(6.dp))
-                                AttachmentCountBadge(count = attachmentCount)
-                            }
-                        }
-                        val unitPriceLabel = entry.unitPriceMilliSen?.let { " · ${Units.formatUnitPrice(it)}" } ?: ""
-                        Text(
-                            text = "${entry.time.localDate} · ${entry.fuelType}$unitPriceLabel",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onEdit) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = "Odometer",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = Units.formatKm(entry.odometerKm),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                Column {
-                    Text(
-                        text = "Volume",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = Units.formatLitres(entry.volumeMl),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "Amount Paid",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = entry.totalSen?.let { Units.formatRm(it, settings.hideAmounts) } ?: "—",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            if (entry.notes.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = entry.notes,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = dateTimeText,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-
-            // Economy interval info badge if this fill-up closed an interval
-            if (economyInterval != null) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            if (economyInterval.suspicious) StatusAmber.copy(alpha = 0.2f)
-                            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                        )
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (economyInterval.suspicious) "Unusual Interval:"
-                            else "Interval (${Units.formatKm(economyInterval.distanceKm)}):",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "${Units.formatKmPerL(economyInterval.kmPerL)} km/L (${Units.formatLPer100(economyInterval.lPer100Km)} L/100 km)",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
+                    Text(
+                        text = entry.station.ifBlank { "Petrol station" },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (entry.fuelType.isNotBlank()) {
+                        CategoryTag(
+                            text = entry.fuelType,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
-            } else if (entry.tankStatus == TankStatus.PARTIAL) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Partial fill-up (waiting for full tank to calculate economy)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else if (entry.missedPrevious) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Missed previous fill-up (new baseline)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
 
-            if (anomalies.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                anomalies.forEach { a ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = null,
-                            tint = StatusAmber,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = a.message,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (interval != null) {
+                    StatusPillDot(
+                        text = "${Units.formatKmPerL(interval.kmPerL)} km/L",
+                        color = if (interval.suspicious) StatusAmber else MaterialTheme.colorScheme.primary
+                    )
                 }
+                CategoryTag(
+                    text = when {
+                        entry.missedPrevious -> "Missed prev"
+                        entry.tankStatus == TankStatus.PARTIAL -> "Partial"
+                        else -> "Full tank"
+                    },
+                    color = when {
+                        entry.missedPrevious -> StatusAmber
+                        entry.tankStatus == TankStatus.PARTIAL -> StatusMuted
+                        else -> StatusGreen
+                    }
+                )
             }
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Metrics Strip
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                FuelCellMetric(
+                    label = "Odometer",
+                    value = Units.formatKm(entry.odometerKm),
+                    modifier = Modifier.weight(1.1f)
+                )
+                FuelCellMetric(
+                    label = "Volume",
+                    value = Units.formatLitres(entry.volumeMl),
+                    modifier = Modifier.weight(0.95f)
+                )
+                FuelCellMetric(
+                    label = "Unit",
+                    value = if (hideAmounts) "RM •••/L" else (derivedUnitPrice?.let { Units.formatUnitPrice(it) } ?: "—"),
+                    modifier = Modifier.weight(1f)
+                )
+                FuelCellMetric(
+                    label = "Paid",
+                    value = totalSen?.let { Units.formatRm(it, hideAmounts) } ?: "—",
+                    alignEnd = true,
+                    emphasize = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        val hasFooter = entry.notes.isNotBlank() || attachmentCount > 0 || entry.startsNewSegment || isAnomaly
+        if (hasFooter) {
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        if (entry.startsNewSegment) {
+            Text(
+                text = "Starts new odometer segment",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        if (entry.notes.isNotBlank()) {
+            Text(
+                text = entry.notes,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AttachmentCountBadge(count = attachmentCount)
+                Text(
+                    text = "Tap card to edit",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(34.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteOutline,
+                    contentDescription = "Delete fill-up",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FuelCellMetric(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    alignEnd: Boolean = false,
+    emphasize: Boolean = false,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (emphasize) FontWeight.Bold else FontWeight.SemiBold,
+            color = if (emphasize) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

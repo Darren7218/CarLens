@@ -66,6 +66,8 @@ data class FuelEconomyReport(
     val costPerKmSen: Double?
         get() = totalValidCostSen?.takeIf { totalValidDistanceKm > 0 }?.let { it.toDouble() / totalValidDistanceKm }
     val latest: EconomyInterval? get() = intervals.lastOrNull { !it.suspicious }
+    val bestInterval: EconomyInterval? get() = intervals.filter { !it.suspicious }.maxByOrNull { it.kmPerL }
+    val lowestInterval: EconomyInterval? get() = intervals.filter { !it.suspicious }.minByOrNull { it.kmPerL }
 
     companion object {
         val EMPTY = FuelEconomyReport(emptyList(), emptyMap(), emptyMap(), emptyList(), 0, 0, null, null)

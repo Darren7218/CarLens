@@ -7,7 +7,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -21,11 +26,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.carlens.domain.repository.BackupPreview
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @Composable
 fun ExportBackupDialog(
@@ -38,15 +45,11 @@ fun ExportBackupDialog(
         onDismissRequest = onDismiss,
         title = { Text("Export CarLens Backup") },
         text = {
-            OutlinedTextField(
+            PasswordField(
                 value = passwordText,
                 onValueChange = { passwordText = it },
-                label = { Text("Password (optional)") },
-                supportingText = { Text("Leave blank for unencrypted .carlens archive") },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                label = "Password (optional)",
+                supportingText = "Leave blank for unencrypted .carlens archive"
             )
         },
         confirmButton = {
@@ -73,15 +76,11 @@ fun InspectBackupDialog(
         onDismissRequest = onDismiss,
         title = { Text("Inspect Backup Archive") },
         text = {
-            OutlinedTextField(
+            PasswordField(
                 value = passwordText,
                 onValueChange = { passwordText = it },
-                label = { Text("Password (if encrypted)") },
-                supportingText = { Text("Next step will preview the archive contents before restoring.") },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                label = "Password",
+                supportingText = "This archive is encrypted. Enter its password to preview contents before restoring."
             )
         },
         confirmButton = {
@@ -105,6 +104,35 @@ fun InspectBackupDialog(
 }
 
 @Composable
+private fun PasswordField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    supportingText: String
+) {
+    var visible by remember { mutableStateOf(false) }
+
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        supportingText = { Text(supportingText) },
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    imageVector = if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (visible) "Hide password" else "Show password"
+                )
+            }
+        },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
 fun ConfirmRestoreDialog(
     preview: BackupPreview,
     onConfirm: () -> Unit,
@@ -122,7 +150,7 @@ fun ConfirmRestoreDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "Exported: $exportedDate",
+                    text = "Exported: $exportedDate · ${if (preview.encrypted) "Encrypted archive" else "Standard archive"}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -140,6 +168,19 @@ fun ConfirmRestoreDialog(
                     ) {
                         Text(text = key, style = MaterialTheme.typography.bodySmall)
                         Text(text = "$count", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (preview.attachmentCount > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = "Attachments", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = "${preview.attachmentCount} (${formatByteSize(preview.attachmentBytes)})",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
@@ -161,4 +202,10 @@ fun ConfirmRestoreDialog(
             }
         }
     )
+}
+
+private fun formatByteSize(bytes: Long): String = when {
+    bytes >= 1024L * 1024L -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+    bytes >= 1024L -> "${bytes / 1024L} KB"
+    else -> "$bytes B"
 }

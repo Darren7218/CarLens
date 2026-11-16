@@ -89,6 +89,12 @@ interface ServiceDao {
     @Query("SELECT * FROM service_items WHERE serviceRecordId = :recordId ORDER BY position")
     suspend fun items(recordId: String): List<ServiceItemEntity>
 
+    @Query("SELECT * FROM service_records WHERE vehicleId = :vehicleId ORDER BY epochMillis ASC")
+    suspend fun list(vehicleId: String): List<ServiceRecordEntity>
+
+    @Query("SELECT i.* FROM service_items i JOIN service_records s ON s.id = i.serviceRecordId WHERE s.vehicleId = :vehicleId ORDER BY i.position")
+    suspend fun listItems(vehicleId: String): List<ServiceItemEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertItems(items: List<ServiceItemEntity>)
 
     @Query("DELETE FROM service_items WHERE serviceRecordId = :recordId")

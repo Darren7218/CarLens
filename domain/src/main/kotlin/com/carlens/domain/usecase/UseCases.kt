@@ -54,6 +54,7 @@ class SaveFuelEntry @Inject constructor(
     private val expenses: ExpenseRepository,
     private val odometer: OdometerRepository,
     private val settings: SettingsRepository,
+    private val vehicles: VehicleRepository,
 ) {
     suspend operator fun invoke(input: FuelEntryInput, confirmed: Boolean): SaveResult {
         val errors = buildList {
@@ -95,6 +96,10 @@ class SaveFuelEntry @Inject constructor(
                 it.time.localDate == input.time.localDate && abs(it.amountSen - input.totalSen) <= input.totalSen / 100
         }
         if (dup) add("A similar fill-up on the same date with the same amount already exists.")
+        val tankCapacityMl = vehicles.getVehicle(input.vehicleId)?.tankCapacityMl
+        if (tankCapacityMl != null && tankCapacityMl > 0L && input.volumeMl > (tankCapacityMl * 115L) / 100L) {
+            add("Volume (${Units.formatLitres(input.volumeMl)}) exceeds your vehicle's ${Units.formatLitres(tankCapacityMl)} tank capacity.")
+        }
     }
 }
 
@@ -108,23 +113,42 @@ class CalculateFuelEconomy @Inject constructor(private val fuel: FuelRepository)
 class RecordService @Inject constructor(
     private val services: ServiceRepository,
     private val expenses: ExpenseRepository,
+    private val odometer: OdometerRepository,
 ) {
     suspend operator fun invoke(input: ServiceRecordInput, confirmed: Boolean): SaveResult {
         val allocated = input.items.sumOf { it.costSen ?: 0L }
         val errors = buildList {
             if (input.title.isBlank() && input.items.isEmpty()) add("Describe the work performed or add an item.")
             if (input.totalSen < 0) add("The bill total cannot be negative.")
+            if (input.odometerKm != null && input.odometerKm <= 0) add("Enter a positive odometer reading, or leave it blank.")
             if (allocated > input.totalSen)
                 add("Item costs (${Units.formatRm(allocated)}) exceed the bill total (${Units.formatRm(input.totalSen)}).")
             if (input.items.any { it.task.isBlank() }) add("Every item needs a task description.")
         }
         if (errors.isNotEmpty()) return SaveResult.Invalid(errors)
-        if (!confirmed && input.totalSen > 0) {
-            val dup = expenses.getExpenses(input.vehicleId).any {
-                it.serviceRecordId != null && it.serviceRecordId != input.id &&
-                    it.time.localDate == input.time.localDate && it.amountSen == input.totalSen
+        if (!confirmed) {
+            val warnings = buildList {
+                if (input.totalSen > 0) {
+                    val dup = expenses.getExpenses(input.vehicleId).any {
+                        it.serviceRecordId != null && it.serviceRecordId != input.id &&
+                            it.time.localDate == input.time.localDate && it.amountSen == input.totalSen
+                    }
+                    if (dup) add("A service record with the same date and amount already exists.")
+                }
+                val odoKm = input.odometerKm
+                if (odoKm != null && odoKm > 0) {
+                    val editingReadingId = input.id?.let { id -> services.getRecord(id)?.odometerReadingId }
+                    val readings = odometer.getReadings(input.vehicleId).filter { it.id != editingReadingId }
+                    val t = input.time.epochMillis
+                    val before = readings.filter { it.time.epochMillis < t }.maxByOrNull { it.time.epochMillis }
+                    val after = readings.filter { it.time.epochMillis > t }.minByOrNull { it.time.epochMillis }
+                    if (before != null && odoKm < before.km)
+                        add("Odometer ${Units.formatKm(odoKm)} is lower than an earlier reading (${Units.formatKm(before.km)}).")
+                    if (after != null && !after.startsNewSegment && odoKm > after.km)
+                        add("Odometer ${Units.formatKm(odoKm)} is higher than a later reading (${Units.formatKm(after.km)}).")
+                }
             }
-            if (dup) return SaveResult.NeedsConfirmation(listOf("A service record with the same date and amount already exists."))
+            if (warnings.isNotEmpty()) return SaveResult.NeedsConfirmation(warnings)
         }
         return SaveResult.Saved(services.save(input))
     }

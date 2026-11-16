@@ -1,13 +1,12 @@
 package com.carlens.ui.costs
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,22 +17,24 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,7 +45,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.carlens.domain.calc.CostSummary
 import com.carlens.domain.calc.CostView
@@ -53,453 +57,440 @@ import com.carlens.domain.model.AppSettings
 import com.carlens.domain.model.Expense
 import com.carlens.domain.model.ExpenseCategory
 import com.carlens.ui.components.AttachmentCountBadge
+import com.carlens.ui.components.CarLensCard
+import com.carlens.ui.components.CarLensFilterChip
+import com.carlens.ui.components.CategoryDonutAndBreakdown
+import com.carlens.ui.components.CategoryTag
+import com.carlens.ui.components.EmptyStateCard
+import com.carlens.ui.components.HeroAccentCard
+import com.carlens.ui.components.MonthlySpendChart
+import com.carlens.ui.components.SectionHeader
+import com.carlens.ui.components.expenseCategoryColor
+import com.carlens.ui.components.expenseCategoryIcon
+import com.carlens.ui.theme.StatusAmber
+import com.carlens.ui.theme.StatusRed
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @Composable
 fun CostsScreen(
     monthlyCost: CostSummary?,
-    allTimeCost: CostSummary? = null,
-    monthlyTrend: List<Pair<YearMonth, Long>> = emptyList(),
-    selectedMonth: YearMonth = YearMonth.now(),
+    allTimeCost: CostSummary?,
+    monthlyTrend: List<Pair<YearMonth, Long>>,
+    selectedMonth: YearMonth,
     allExpenses: List<Expense>,
     currentView: CostView,
     settings: AppSettings,
-    attachmentCounts: Map<String, Int> = emptyMap(),
-    onSelectMonth: (YearMonth) -> Unit = {},
+    attachmentCounts: Map<String, Int>,
+    onSelectMonth: (YearMonth) -> Unit,
     onViewChanged: (CostView) -> Unit,
-    onEditExpense: (Expense) -> Unit = {},
+    onEditExpense: (Expense) -> Unit,
     onDeleteExpense: (Expense) -> Unit,
     onAddExpenseClick: () -> Unit,
-    onEditBudgetClick: () -> Unit = {}
+    onEditBudgetClick: () -> Unit,
 ) {
+    var showAllTime by remember { mutableStateOf(false) }
+    var selectedCategory by remember { mutableStateOf<ExpenseCategory?>(null) }
     var searchQuery by remember { mutableStateOf("") }
-    var selectedCategoryFilter by remember { mutableStateOf<ExpenseCategory?>(null) }
-    var showAllTimeTransactions by remember { mutableStateOf(false) }
 
-    val monthFormatter = remember { DateTimeFormatter.ofPattern("MMM yyyy") }
-    val shortMonthFormatter = remember { DateTimeFormatter.ofPattern("MMM") }
-    val currentYearMonth = remember { YearMonth.now() }
+    val activeSummary = if (showAllTime) allTimeCost else monthlyCost
+    val monthFmt = remember { DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US) }
+    val dateFmt = remember { DateTimeFormatter.ofPattern("d MMM yyyy", Locale.US) }
 
-    val baseExpenses = remember(showAllTimeTransactions, monthlyCost, allExpenses, currentView) {
-        if (showAllTimeTransactions) {
-            allExpenses.filter { currentView.includes(it.category) }
-        } else {
-            monthlyCost?.expenses ?: emptyList()
-        }
-    }
-
-    val filteredExpenses = remember(baseExpenses, searchQuery, selectedCategoryFilter) {
-        baseExpenses.filter { exp ->
-            val matchesCategory = selectedCategoryFilter == null || exp.category == selectedCategoryFilter
-            val q = searchQuery.trim().lowercase()
-            val matchesSearch = q.isBlank() ||
-                exp.merchant.lowercase().contains(q) ||
-                exp.notes.lowercase().contains(q) ||
-                exp.category.label.lowercase().contains(q) ||
-                exp.time.localDate.toString().contains(q)
-            matchesCategory && matchesSearch
+    val visibleExpenses = remember(activeSummary, selectedCategory, searchQuery) {
+        val q = searchQuery.trim()
+        activeSummary?.expenses.orEmpty().filter { exp ->
+            val matchesCat = selectedCategory == null || exp.category == selectedCategory
+            val matchesQ = q.isEmpty() ||
+                exp.merchant.contains(q, ignoreCase = true) ||
+                exp.notes.contains(q, ignoreCase = true) ||
+                exp.category.label.contains(q, ignoreCase = true)
+            matchesCat && matchesQ
         }
     }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 96.dp)
     ) {
+        // Header
         item {
-            Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Costs & Spending",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                OutlinedButton(onClick = onAddExpenseClick) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Add Expense")
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Month Navigator + View Switcher
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onSelectMonth(selectedMonth.minusMonths(1)) }) {
-                        Icon(Icons.Default.ChevronLeft, contentDescription = "Previous Month")
-                    }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        text = selectedMonth.format(monthFormatter),
-                        style = MaterialTheme.typography.titleMedium,
+                        text = "Costs & Analytics",
+                        style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    IconButton(
-                        onClick = { onSelectMonth(selectedMonth.plusMonths(1)) },
-                        enabled = selectedMonth.isBefore(currentYearMonth)
-                    ) {
-                        Icon(Icons.Default.ChevronRight, contentDescription = "Next Month")
-                    }
-                    if (selectedMonth != currentYearMonth) {
-                        TextButton(onClick = { onSelectMonth(currentYearMonth) }) {
-                            Text("Today")
-                        }
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(
-                        selected = currentView == CostView.RUNNING_COSTS,
-                        onClick = { onViewChanged(CostView.RUNNING_COSTS) },
-                        label = { Text("Running") }
-                    )
-                    FilterChip(
-                        selected = currentView == CostView.CASH_OUTFLOW,
-                        onClick = { onViewChanged(CostView.CASH_OUTFLOW) },
-                        label = { Text("Outflow") }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Monthly Summary Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${selectedMonth.format(monthFormatter)} · ${currentView.label}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        TextButton(onClick = onEditBudgetClick) {
-                            Text(if ((settings.monthlyBudgetSen ?: 0L) > 0L) "Edit Budget" else "Set Budget")
-                        }
-                    }
                     Text(
-                        text = Units.formatRm(monthlyCost?.totalSen ?: 0L, settings.hideAmounts),
-                        style = MaterialTheme.typography.displayMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        text = "${allExpenses.size} total ${if (allExpenses.size == 1) "expense" else "expenses"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
 
-                    val budgetSen = settings.monthlyBudgetSen
-                    if (budgetSen != null && budgetSen > 0L) {
-                        val spentSen = monthlyCost?.totalSen ?: 0L
-                        val ratio = (spentSen.toFloat() / budgetSen.toFloat()).coerceIn(0f, 1f)
-                        val isOverBudget = spentSen > budgetSen
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = if (isOverBudget) "Over budget by ${Units.formatRm(spentSen - budgetSen, settings.hideAmounts)}"
-                                else "${Units.formatRm(budgetSen - spentSen, settings.hideAmounts)} remaining of ${Units.formatRm(budgetSen, settings.hideAmounts)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isOverBudget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (isOverBudget) FontWeight.Bold else FontWeight.Normal
-                            )
-                            Text(
-                                text = "${((spentSen * 100) / budgetSen)}%",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isOverBudget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = { ratio },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = if (isOverBudget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Cost per km",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = monthlyCost?.costPerKmSen?.let {
-                                Units.formatRmPerKm(it, settings.hideAmounts)
-                            } ?: "Update mileage to calculate",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                    if (allTimeCost != null && allTimeCost.expenses.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "All-Time (${allTimeCost.expenses.size} txns)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            val allTimePerKm = allTimeCost.costPerKmSen?.let {
-                                " · ${Units.formatRmPerKm(it, settings.hideAmounts)}"
-                            } ?: ""
-                            Text(
-                                text = "${Units.formatRm(allTimeCost.totalSen, settings.hideAmounts)}$allTimePerKm",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
+                FilledTonalButton(
+                    onClick = onAddExpenseClick,
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Expense")
                 }
             }
+        }
 
-            // 6-Month Spending Trend Bar Chart
-            if (monthlyTrend.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Card(
+        // Scope + Cost View Controls
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "6-Month Spending Trend",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        val maxSen = monthlyTrend.maxOf { it.second }.coerceAtLeast(100L)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(100.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.Bottom
-                        ) {
-                            monthlyTrend.forEach { (ym, totalSen) ->
-                                val isSelected = ym == selectedMonth
-                                val fraction = (totalSen.toFloat() / maxSen.toFloat()).coerceIn(0.06f, 1f)
-                                Column(
+                    // Month vs All-time segmented pill
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Row(modifier = Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf("Monthly" to false, "All-time" to true).forEach { (label, isAllTime) ->
+                                val selected = showAllTime == isAllTime
+                                Surface(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .fillMaxHeight()
-                                        .clickable { onSelectMonth(ym) },
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Bottom
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            showAllTime = isAllTime
+                                            selectedCategory = null
+                                        },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (selected) MaterialTheme.colorScheme.surface else Color.Transparent,
+                                    border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
                                 ) {
                                     Text(
-                                        text = if (settings.hideAmounts) "••" else "${totalSen / 100}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth(0.65f)
-                                            .fillMaxHeight(fraction * 0.65f)
-                                            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                                            .background(
-                                                if (isSelected) MaterialTheme.colorScheme.primary
-                                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                                            )
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = ym.format(shortMonthFormatter),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        text = label,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(vertical = 8.dp)
                                     )
                                 }
                             }
                         }
                     }
-                }
-            }
 
-            // Category Breakdown Card
-            if (monthlyCost != null && monthlyCost.byCategory.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    // Running Costs vs Cash Outflow toggle chips
+                    CarLensFilterChip(
+                        selected = currentView == CostView.RUNNING_COSTS,
+                        onClick = { onViewChanged(CostView.RUNNING_COSTS) },
+                        label = "Running"
+                    )
+                    CarLensFilterChip(
+                        selected = currentView == CostView.CASH_OUTFLOW,
+                        onClick = { onViewChanged(CostView.CASH_OUTFLOW) },
+                        label = "Outflow"
+                    )
+                }
+
+                if (!showAllTime) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            IconButton(onClick = { onSelectMonth(selectedMonth.minusMonths(1)) }) {
+                                Icon(Icons.Rounded.ChevronLeft, contentDescription = "Previous month")
+                            }
                             Text(
-                                text = "Category Breakdown (Tap to filter)",
+                                text = selectedMonth.format(monthFmt),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
-                            if (selectedCategoryFilter != null) {
-                                TextButton(onClick = { selectedCategoryFilter = null }) {
-                                    Text("Clear Filter")
-                                }
+                            IconButton(onClick = { onSelectMonth(selectedMonth.plusMonths(1)) }) {
+                                Icon(Icons.Rounded.ChevronRight, contentDescription = "Next month")
                             }
                         }
-                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+                }
+            }
+        }
 
-                        val total = monthlyCost.totalSen.coerceAtLeast(1L)
-                        monthlyCost.byCategory.forEach { catTotal ->
-                            val fraction = catTotal.totalSen.toFloat() / total
-                            val isSelectedCat = selectedCategoryFilter == catTotal.category
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        if (isSelectedCat) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                                        else MaterialTheme.colorScheme.surface
-                                    )
-                                    .clickable {
-                                        selectedCategoryFilter = if (isSelectedCat) null else catTotal.category
-                                    }
-                                    .padding(vertical = 6.dp, horizontal = 6.dp)
+        // Hero Summary Card
+        item {
+            val budgetSen = settings.monthlyBudgetSen
+            val totalSen = activeSummary?.totalSen ?: 0L
+            val txCount = activeSummary?.expenses?.size ?: 0
+            val distKm = activeSummary?.distanceKm
+            val costPerKm = activeSummary?.costPerKmSen
+
+            HeroAccentCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = if (showAllTime) {
+                                "ALL TIME · ${currentView.label.uppercase()}"
+                            } else {
+                                "${selectedMonth.format(monthFmt).uppercase()} · ${currentView.label.uppercase()}"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = Units.formatRm(totalSen, settings.hideAmounts),
+                            style = MaterialTheme.typography.displayLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    if (!showAllTime) {
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable(onClick = onEditBudgetClick),
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "${catTotal.category.label} (${catTotal.count})",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = if (isSelectedCat) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = Units.formatRm(catTotal.totalSen, settings.hideAmounts),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                LinearProgressIndicator(
-                                    progress = { fraction },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .clip(RoundedCornerShape(3.dp)),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                Icon(
+                                    imageVector = Icons.Rounded.Tune,
+                                    contentDescription = "Edit budget",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = if (budgetSen != null && budgetSen > 0) "Budget" else "Set budget",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(14.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Transactions (${filteredExpenses.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(
-                        selected = !showAllTimeTransactions,
-                        onClick = { showAllTimeTransactions = false },
-                        label = { Text(selectedMonth.format(shortMonthFormatter)) }
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "$txCount ${if (txCount == 1) "transaction" else "transactions"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    FilterChip(
-                        selected = showAllTimeTransactions,
-                        onClick = { showAllTimeTransactions = true },
-                        label = { Text("All Time") }
+                    if (distKm != null && distKm > 0) {
+                        Text(
+                            text = "· ${Units.formatKm(distKm)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (costPerKm != null) {
+                        Text(
+                            text = "· ${Units.formatRmPerKm(costPerKm, settings.hideAmounts)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                if (!showAllTime && budgetSen != null && budgetSen > 0L) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val ratio = (totalSen.toFloat() / budgetSen.toFloat()).coerceIn(0f, 1.5f)
+                    val barColor = when {
+                        ratio > 1f -> StatusRed
+                        ratio >= 0.8f -> StatusAmber
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Budget ${Units.formatRmCompact(budgetSen, settings.hideAmounts)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        val rem = budgetSen - totalSen
+                        Text(
+                            text = if (rem >= 0) {
+                                "${Units.formatRmCompact(rem, settings.hideAmounts)} remaining"
+                            } else {
+                                "${Units.formatRmCompact(-rem, settings.hideAmounts)} over budget"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = barColor
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { ratio.coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = barColor,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
                     )
                 }
             }
+        }
 
-            if (allExpenses.size > 3 || searchQuery.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
+        // 6-Month Spend Trend Chart
+        if (monthlyTrend.isNotEmpty()) {
+            item {
+                CarLensCard {
+                    SectionHeader(
+                        title = "6-Month Trend",
+                        subtitle = currentView.label
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    MonthlySpendChart(
+                        trend = monthlyTrend,
+                        selectedMonth = selectedMonth,
+                        budgetSen = settings.monthlyBudgetSen,
+                        hideAmounts = settings.hideAmounts,
+                        onSelectMonth = { month ->
+                            showAllTime = false
+                            selectedCategory = null
+                            onSelectMonth(month)
+                        }
+                    )
+                }
+            }
+        }
+
+        // Interactive Category Donut & Breakdown
+        val categories = activeSummary?.byCategory.orEmpty()
+        if (categories.isNotEmpty()) {
+            item {
+                CarLensCard {
+                    SectionHeader(
+                        title = "Category Breakdown",
+                        subtitle = "Tap any category to filter transactions below",
+                        trailing = if (selectedCategory != null) {
+                            {
+                                TextButton(onClick = { selectedCategory = null }) {
+                                    Text("Clear")
+                                }
+                            }
+                        } else null
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    CategoryDonutAndBreakdown(
+                        byCategory = categories,
+                        totalSen = activeSummary?.totalSen ?: 0L,
+                        selectedCategory = selectedCategory,
+                        hideAmounts = settings.hideAmounts,
+                        onSelectCategory = { cat -> selectedCategory = cat }
+                    )
+                }
+            }
+        }
+
+        // Transactions Section Header & Search
+        item {
+            SectionHeader(
+                title = selectedCategory?.let { "${it.label} Transactions" } ?: "Transactions",
+                subtitle = "${visibleExpenses.size} shown"
+            )
+        }
+
+        if (activeSummary?.expenses.orEmpty().isNotEmpty()) {
+            item {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search merchant, category, notes...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    placeholder = { Text("Search merchant, category, or notes") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     trailingIcon = {
-                        if (searchQuery.isNotBlank()) {
+                        if (searchQuery.isNotEmpty()) {
                             IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear")
+                                Icon(Icons.Rounded.Close, contentDescription = "Clear search")
                             }
                         }
                     },
                     singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
         }
 
-        if (filteredExpenses.isEmpty()) {
+        if (visibleExpenses.isEmpty()) {
+            val periodEmpty = activeSummary?.expenses.orEmpty().isEmpty()
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = if (allExpenses.isEmpty()) "No expenses recorded for this vehicle."
-                            else "No matching transactions.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                EmptyStateCard(
+                    icon = Icons.Rounded.AccountBalanceWallet,
+                    title = if (periodEmpty) "No expenses in this period" else "No matching expenses",
+                    subtitle = if (periodEmpty) {
+                        "Fuel fill-ups and service records appear here automatically alongside tolls, parking, and renewals."
+                    } else {
+                        "Try clearing your category filter or search query."
+                    },
+                    actionLabel = if (periodEmpty) "Add expense" else "Show all",
+                    onAction = if (periodEmpty) {
+                        onAddExpenseClick
+                    } else {
+                        {
+                            selectedCategory = null
+                            searchQuery = ""
+                        }
                     }
-                }
+                )
             }
         } else {
-            items(filteredExpenses, key = { it.id }) { expense ->
-                val attachKey = expense.fuelEntryId ?: expense.serviceRecordId ?: expense.id
+            items(visibleExpenses, key = { it.id }) { expense ->
                 ExpenseCard(
                     expense = expense,
-                    settings = settings,
-                    attachmentCount = attachmentCounts[attachKey] ?: 0,
-                    onEdit = { onEditExpense(expense) },
+                    attachmentCount = attachmentCounts[expense.id] ?: 0,
+                    hideAmounts = settings.hideAmounts,
+                    dateText = expense.time.localDate.format(dateFmt),
+                    onClick = { onEditExpense(expense) },
                     onDelete = { onDeleteExpense(expense) }
                 )
             }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(40.dp))
         }
     }
 }
@@ -507,92 +498,138 @@ fun CostsScreen(
 @Composable
 private fun ExpenseCard(
     expense: Expense,
-    settings: AppSettings,
     attachmentCount: Int,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit
+    hideAmounts: Boolean,
+    dateText: String,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onEdit() },
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
+    val catColor = expenseCategoryColor(expense.category)
+
+    CarLensCard(onClick = onClick) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = expense.category.label,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = catColor.copy(alpha = 0.14f)
+                ) {
+                    Icon(
+                        imageVector = expenseCategoryIcon(expense.category),
+                        contentDescription = null,
+                        tint = catColor,
+                        modifier = Modifier
+                            .padding(10.dp)
+                            .size(20.dp)
                     )
-                    if (expense.isLinked) {
-                        Spacer(modifier = Modifier.size(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = if (expense.fuelEntryId != null) "Fuel" else "Service",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    if (attachmentCount > 0) {
-                        Spacer(modifier = Modifier.size(6.dp))
-                        AttachmentCountBadge(count = attachmentCount)
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = expense.merchant.ifBlank { expense.category.label },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = dateText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        CategoryTag(text = expense.category.label, color = catColor)
                     }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "${expense.time.localDate}${if (expense.merchant.isNotBlank()) " · ${expense.merchant}" else ""}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (expense.notes.isNotBlank()) {
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Text(
+                text = Units.formatRm(expense.amountSen, hideAmounts),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+
+        if (expense.notes.isNotBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = expense.notes,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AttachmentCountBadge(count = attachmentCount)
+                if (expense.isLinked) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Link,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = if (expense.fuelEntryId != null) {
+                                "Linked fuel entry · tap to edit"
+                            } else {
+                                "Linked service · tap to edit"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
                     Text(
-                        text = expense.notes,
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "Tap card to edit",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = Units.formatRm(expense.amountSen, settings.hideAmounts),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                IconButton(onClick = onEdit) {
+            if (!expense.isLinked) {
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(34.dp)
+                ) {
                     Icon(
-                        Icons.Default.Edit,
-                        contentDescription = "Edit",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        imageVector = Icons.Rounded.DeleteOutline,
+                        contentDescription = "Delete expense",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )
-                }
-                if (!expense.isLinked) {
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
             }
         }

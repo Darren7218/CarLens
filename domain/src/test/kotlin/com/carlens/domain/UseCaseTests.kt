@@ -296,7 +296,8 @@ class UseCaseTests {
         val expRepo = FakeExpenseRepo()
         val fuelRepo = FakeFuelRepo(odoRepo, expRepo)
         val settingsRepo = FakeSettingsRepo()
-        val saveFuel = SaveFuelEntry(fuelRepo, expRepo, odoRepo, settingsRepo)
+        val vehicleRepo = FakeVehicleRepo()
+        val saveFuel = SaveFuelEntry(fuelRepo, expRepo, odoRepo, settingsRepo, vehicleRepo)
 
         val invalidInput = FuelEntryInput(
             vehicleId = "v1",
@@ -323,7 +324,8 @@ class UseCaseTests {
         val expRepo = FakeExpenseRepo()
         val fuelRepo = FakeFuelRepo(odoRepo, expRepo)
         val settingsRepo = FakeSettingsRepo()
-        val saveFuel = SaveFuelEntry(fuelRepo, expRepo, odoRepo, settingsRepo)
+        val vehicleRepo = FakeVehicleRepo()
+        val saveFuel = SaveFuelEntry(fuelRepo, expRepo, odoRepo, settingsRepo, vehicleRepo)
 
         // 1. Save initial entry at 10,000 km on Day 0
         val first = FuelEntryInput(
@@ -362,10 +364,47 @@ class UseCaseTests {
     }
 
     @Test
+    fun `SaveFuelEntry warns when volume exceeds vehicle tank capacity by more than 15 percent`() = runBlocking {
+        val odoRepo = FakeOdometerRepo()
+        val expRepo = FakeExpenseRepo()
+        val fuelRepo = FakeFuelRepo(odoRepo, expRepo)
+        val settingsRepo = FakeSettingsRepo()
+        val vehicleRepo = FakeVehicleRepo()
+        vehicleRepo.upsert(Vehicle("v1", "My Vios", "Toyota", "Vios", 2024, "VXX 1234", "RON95", 40_000, archived = false, 0, 0))
+        val saveFuel = SaveFuelEntry(fuelRepo, expRepo, odoRepo, settingsRepo, vehicleRepo)
+
+        val withinLimit = FuelEntryInput(
+            vehicleId = "v1",
+            time = EventTime.ofDate(BASE_DATE, TEST_ZONE),
+            odometerKm = 10_000,
+            volumeMl = 45_000, // 45L <= 40L * 1.15 (46L)
+            totalSen = 9225,
+            unitPriceMilliSen = 205_000,
+            tankStatus = TankStatus.FULL,
+            missedPrevious = false,
+            station = "Petronas",
+            fuelType = "RON95",
+            notes = ""
+        )
+        assertTrue(saveFuel(withinLimit, confirmed = false) is SaveResult.Saved)
+
+        val overCapacity = withinLimit.copy(
+            time = EventTime.ofDate(BASE_DATE.plusDays(3), TEST_ZONE),
+            odometerKm = 10_500,
+            volumeMl = 47_000, // 47L > 40L * 1.15 (46L)
+            totalSen = 9635
+        )
+        val result = saveFuel(overCapacity, confirmed = false)
+        assertTrue(result is SaveResult.NeedsConfirmation)
+        assertTrue((result as SaveResult.NeedsConfirmation).warnings.any { it.contains("tank capacity") })
+    }
+
+    @Test
     fun `RecordService validates item allocation against bill total`() = runBlocking {
         val expRepo = FakeExpenseRepo()
+        val odoRepo = FakeOdometerRepo()
         val srvRepo = FakeServiceRepo(expRepo)
-        val recordService = RecordService(srvRepo, expRepo)
+        val recordService = RecordService(srvRepo, expRepo, odoRepo)
 
         val overAllocated = ServiceRecordInput(
             vehicleId = "v1",
@@ -385,6 +424,37 @@ class UseCaseTests {
         val result = recordService(overAllocated, confirmed = false)
         assertTrue(result is SaveResult.Invalid)
         assertTrue((result as SaveResult.Invalid).errors.single().contains("exceed the bill total"))
+    }
+
+    @Test
+    fun `RecordService rejects non-positive odometer and warns on out-of-sequence odometer`() = runBlocking {
+        val expRepo = FakeExpenseRepo()
+        val odoRepo = FakeOdometerRepo()
+        val srvRepo = FakeServiceRepo(expRepo)
+        val recordService = RecordService(srvRepo, expRepo, odoRepo)
+
+        odoRepo.addManualReading("v1", EventTime.ofDate(BASE_DATE.minusDays(5), TEST_ZONE), 50_000, startsNewSegment = false)
+
+        val baseInput = ServiceRecordInput(
+            vehicleId = "v1",
+            time = EventTime.ofDate(BASE_DATE, TEST_ZONE),
+            odometerKm = -100,
+            title = "Oil Service",
+            workshop = "SC",
+            notes = "",
+            category = ExpenseCategory.MAINTENANCE,
+            totalSen = 15_000,
+            items = listOf(ServiceItemInput(task = "Engine Oil", part = "", quantity = null, costSen = 15_000, maintenanceRuleId = null))
+        )
+
+        val invalidOdo = recordService(baseInput, confirmed = false)
+        assertTrue(invalidOdo is SaveResult.Invalid)
+
+        val lowerOdo = recordService(baseInput.copy(odometerKm = 48_000), confirmed = false)
+        assertTrue(lowerOdo is SaveResult.NeedsConfirmation)
+
+        val confirmedLowerOdo = recordService(baseInput.copy(odometerKm = 48_000), confirmed = true)
+        assertTrue(confirmedLowerOdo is SaveResult.Saved)
     }
 
     @Test

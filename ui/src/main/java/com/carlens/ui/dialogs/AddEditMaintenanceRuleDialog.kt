@@ -1,5 +1,6 @@
 package com.carlens.ui.dialogs
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -131,6 +133,39 @@ fun AddEditMaintenanceRuleDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+
+                if (!isEditing) {
+                    val presets = remember {
+                        listOf(
+                            Triple("ATF / Transmission Fluid", "24", "40000"),
+                            Triple("Coolant Flush", "36", "60000"),
+                            Triple("Cabin Air Filter", "12", "15000"),
+                            Triple("Brake Pads Inspection", "12", "20000"),
+                            Triple("Battery Check / Replace", "24", ""),
+                            Triple("Wheel Alignment", "12", "15000")
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        presets.forEach { (presetTask, presetMonths, presetKm) ->
+                            if (!taskText.equals(presetTask, ignoreCase = true)) {
+                                SuggestionChip(
+                                    onClick = {
+                                        taskText = presetTask
+                                        intervalMonthsText = presetMonths
+                                        intervalKmText = presetKm
+                                    },
+                                    label = { Text(presetTask, style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(

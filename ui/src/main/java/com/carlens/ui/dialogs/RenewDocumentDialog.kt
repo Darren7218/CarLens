@@ -31,9 +31,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.carlens.domain.calc.Units
+import com.carlens.domain.model.AttachmentOwner
 import com.carlens.domain.model.VehicleDocument
+import com.carlens.domain.repository.AttachmentRepository
 import com.carlens.domain.usecase.RenewDocument
 import com.carlens.domain.usecase.SaveResult
+import com.carlens.ui.components.AttachmentSection
 import com.carlens.ui.components.DatePickerField
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -42,6 +45,7 @@ import java.time.LocalDate
 fun RenewDocumentDialog(
     document: VehicleDocument,
     renewDocument: RenewDocument,
+    attachmentRepo: AttachmentRepository? = null,
     onDismiss: () -> Unit,
     onSuccess: () -> Unit
 ) {
@@ -147,6 +151,15 @@ fun RenewDocumentDialog(
                         label = "Payment Date",
                         selectedDate = paidOnDate,
                         onDateSelected = { paidOnDate = it }
+                    )
+                }
+
+                if (attachmentRepo != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    AttachmentSection(
+                        ownerType = AttachmentOwner.DOCUMENT,
+                        ownerId = document.id,
+                        attachmentRepo = attachmentRepo
                     )
                 }
 

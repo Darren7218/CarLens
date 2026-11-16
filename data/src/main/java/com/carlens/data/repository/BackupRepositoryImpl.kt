@@ -422,10 +422,10 @@ class BackupRepositoryImpl @Inject constructor(
     }
 
     override suspend fun exportServicesCsv(vehicleId: String, destinationUri: String): Unit = withContext(Dispatchers.IO) {
-        val records = db.services().all().filter { it.vehicleId == vehicleId }
+        val records = db.services().list(vehicleId)
         val readings = db.odometer().list(vehicleId).associateBy { it.id }
         val expenses = db.expenses().list(vehicleId).filter { it.serviceRecordId != null }.associateBy { it.serviceRecordId!! }
-        val allItems = db.services().allItems().groupBy { it.serviceRecordId }
+        val allItems = db.services().listItems(vehicleId).groupBy { it.serviceRecordId }
 
         openOutputStream(destinationUri).use { out ->
             out.bufferedWriter().use { writer ->

@@ -1,10 +1,12 @@
 package com.carlens.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,58 +15,67 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.TrendingUp
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.LocalGasStation
-import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.TrendingDown
+import androidx.compose.material.icons.automirrored.rounded.TrendingUp
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.EditRoad
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.LocalGasStation
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.carlens.domain.calc.CostSummary
 import com.carlens.domain.calc.DocumentStatus
 import com.carlens.domain.calc.DueState
 import com.carlens.domain.calc.FuelEconomyReport
 import com.carlens.domain.calc.MaintenanceStatus
 import com.carlens.domain.calc.MileageSnapshot
+import com.carlens.domain.calc.TrendDirection
 import com.carlens.domain.calc.Units
 import com.carlens.domain.model.AppSettings
 import com.carlens.domain.model.Vehicle
 import com.carlens.domain.model.VehicleDocument
-import com.carlens.ui.components.PlateBadge
-import com.carlens.ui.components.StatCard
-import com.carlens.ui.components.StatusBadge
+import com.carlens.ui.components.CarLensCard
+import com.carlens.ui.components.EmptyStateCard
+import com.carlens.ui.components.HeroAccentCard
+import com.carlens.ui.components.SectionHeader
+import com.carlens.ui.components.StatusPillDot
+import com.carlens.ui.components.UrgencyStripCard
+import com.carlens.ui.components.VehicleSelectorHeader
+import com.carlens.ui.components.dueStateColor
 import com.carlens.ui.theme.StatusAmber
+import com.carlens.ui.theme.StatusGreen
 import com.carlens.ui.theme.StatusRed
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
@@ -77,490 +88,628 @@ fun HomeScreen(
     nextMaintenance: MaintenanceStatus?,
     nextRenewal: DocumentStatus?,
     settings: AppSettings,
+    onTogglePrivacy: () -> Unit = {},
     onAddFuelClick: () -> Unit,
     onUpdateMileageClick: () -> Unit,
     onViewOdometerHistoryClick: () -> Unit,
-    onSelectVehicle: (Vehicle) -> Unit = {},
+    onSelectVehicle: (Vehicle) -> Unit,
     onSelectVehicleClick: () -> Unit,
     onNavigateToCare: () -> Unit,
     onNavigateToCosts: () -> Unit,
     onNavigateToFuel: () -> Unit,
     onNavigateToGarage: () -> Unit,
-    onRenewDocumentClick: (VehicleDocument) -> Unit
+    onRenewDocumentClick: (VehicleDocument) -> Unit,
 ) {
-    val scrollState = rememberScrollState()
-    var showVehiclePicker by remember { mutableStateOf(false) }
+    val dateFmt = remember { DateTimeFormatter.ofPattern("d MMM yyyy", Locale.US) }
+    val monthFmt = remember { DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US) }
+    val currentMonthLabel = remember { YearMonth.now().format(monthFmt) }
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .verticalScroll(scrollState)
-            .padding(16.dp)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 96.dp)
     ) {
-        // Vehicle Header with Quick Switcher
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .clickable {
-                        if (allVehicles.isNotEmpty()) {
-                            showVehiclePicker = true
-                        } else {
-                            onSelectVehicleClick()
-                        }
-                    }
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = selectedVehicle?.name ?: "No Vehicle Selected",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        if (allVehicles.isNotEmpty()) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowDropDown,
-                                contentDescription = "Switch Vehicle",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    if (selectedVehicle != null) {
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "${selectedVehicle.make} ${selectedVehicle.model} ${selectedVehicle.year ?: ""}".trim(),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                if (selectedVehicle != null) {
-                    PlateBadge(plate = selectedVehicle.plate, hidePlate = settings.hidePlate)
-                }
-            }
-
-            DropdownMenu(
-                expanded = showVehiclePicker,
-                onDismissRequest = { showVehiclePicker = false }
-            ) {
-                allVehicles.forEach { vehicle ->
-                    val isSelected = vehicle.id == selectedVehicle?.id
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text(
-                                    text = vehicle.name,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                                Text(
-                                    text = "${vehicle.make} ${vehicle.model}".trim(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = if (isSelected) Icons.Default.Check else Icons.Default.DirectionsCar,
-                                contentDescription = null,
-                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        },
-                        onClick = {
-                            showVehiclePicker = false
-                            onSelectVehicle(vehicle)
-                        }
-                    )
-                }
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = "Manage Garage / Add Car…",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    },
-                    onClick = {
-                        showVehiclePicker = false
-                        onSelectVehicleClick()
-                    }
-                )
-            }
+        item {
+            VehicleSelectorHeader(
+                selectedVehicle = selectedVehicle,
+                vehicles = allVehicles,
+                hidePlate = settings.hidePlate,
+                hideAmounts = settings.hideAmounts,
+                onSelectVehicle = onSelectVehicle,
+                onTogglePrivacy = onTogglePrivacy
+            )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        if (selectedVehicle == null) {
+            item {
+                EmptyStateCard(
+                    icon = Icons.Rounded.DirectionsCar,
+                    title = "Welcome to CarLens",
+                    subtitle = "Add your car in the Garage tab to track fuel economy, service intervals, renewals, and ownership costs offline.",
+                    actionLabel = "Open Garage",
+                    onAction = onSelectVehicleClick
+                )
+            }
+            return@LazyColumn
+        }
 
-        // Hero Card: Current Mileage & Primary "Add Fuel" CTA
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+        // Hero Odometer & Primary Actions
+        item {
+            val currentKm = mileage.currentKm
+            val readingDate = mileage.readingDate
+            val kmPerDay = mileage.kmPerDay
+
+            HeroAccentCard {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable(onClick = onViewOdometerHistoryClick)
-                    ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = "LATEST MILEAGE",
+                            text = "CURRENT ODOMETER",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            letterSpacing = 1.sp
+                            color = MaterialTheme.colorScheme.primary
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = mileage.currentKm?.let { Units.formatKm(it) } ?: "No readings yet",
-                            style = MaterialTheme.typography.displayMedium,
-                            fontWeight = FontWeight.Bold,
+                            text = if (currentKm != null) Units.formatKm(currentKm) else "No reading yet",
+                            style = MaterialTheme.typography.displayLarge,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        val metaParts = buildList {
-                            mileage.readingDate?.let { add("As of $it") }
-                            mileage.kmPerDay?.let { add(String.format(Locale.US, "~%.0f km/day", it)) }
-                        }
-                        if (metaParts.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.History,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = metaParts.joinToString(" · ") + " · Tap for log",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        val meta = buildList {
+                            if (readingDate != null) add("Updated ${readingDate.format(dateFmt)}")
+                            if (kmPerDay != null && kmPerDay > 0.5) {
+                                add("~${kmPerDay.toInt()} km/day avg")
                             }
+                        }.joinToString(" · ")
+                        if (meta.isNotBlank()) {
+                            Text(
+                                text = meta,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
 
-                    Box(
+                    Surface(
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                            .clickable(onClick = onUpdateMileageClick),
-                        contentAlignment = Alignment.Center
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(onClick = onViewOdometerHistoryClick),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Speed,
-                            contentDescription = "Update Mileage",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.History,
+                                contentDescription = "Odometer history",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "History",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Button(
-                    onClick = onAddFuelClick,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(Icons.Default.LocalGasStation, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Add Fuel",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Button(
+                        onClick = onAddFuelClick,
+                        modifier = Modifier
+                            .weight(1.45f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.LocalGasStation,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Add fuel",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    FilledTonalButton(
+                        onClick = onUpdateMileageClick,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.EditRoad,
+                            contentDescription = null,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Log km",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // Question 1: What did I spend?
+        item {
+            val budgetSen = settings.monthlyBudgetSen
+            val spendTotalSen = monthlyCost?.totalSen ?: 0L
+            val spendExpenses = monthlyCost?.expenses.orEmpty()
+            val costPerKm = monthlyCost?.costPerKmSen
+            val topCat = monthlyCost?.byCategory?.firstOrNull()
 
-        // Three Core Questions Section
+            CarLensCard(onClick = onNavigateToCosts) {
+                HomeCardHeader(
+                    icon = Icons.Rounded.AccountBalanceWallet,
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    overline = "WHAT DID I SPEND?",
+                    actionLabel = currentMonthLabel
+                )
 
-        // 1. What did I spend?
-        Text(
-            text = "What Did I Spend?",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        val spendingSen = monthlyCost?.totalSen ?: 0L
-        val budgetSen = settings.monthlyBudgetSen
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onNavigateToCosts),
-            shape = MaterialTheme.shapes.medium,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "This Month (${java.time.YearMonth.now().month.name.lowercase().replaceFirstChar { it.uppercase() }})",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = Units.formatRm(spendingSen, settings.hideAmounts),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                if (budgetSen != null && budgetSen > 0) {
-                    val remaining = budgetSen - spendingSen
-                    val progress = (spendingSen.toFloat() / budgetSen.toFloat()).coerceIn(0f, 1f)
-                    val overBudget = remaining < 0
-                    Text(
-                        text = if (!overBudget) {
-                            "Under budget by ${Units.formatRm(remaining, settings.hideAmounts)} (of ${Units.formatRm(budgetSen, settings.hideAmounts)})"
-                        } else {
-                            "Over budget by ${Units.formatRm(-remaining, settings.hideAmounts)} (budget: ${Units.formatRm(budgetSen, settings.hideAmounts)})"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (overBudget) StatusRed else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            text = Units.formatRm(spendTotalSen, settings.hideAmounts),
+                            style = MaterialTheme.typography.displayMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        val spendSub = buildList {
+                            add("${spendExpenses.size} ${if (spendExpenses.size == 1) "record" else "records"}")
+                            if (topCat != null && spendTotalSen > 0) {
+                                val pct = ((topCat.totalSen.toDouble() / spendTotalSen.toDouble()) * 100).toInt()
+                                add("${topCat.category.label} $pct%")
+                            }
+                        }.joinToString(" · ")
+                        Text(
+                            text = spendSub,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (costPerKm != null) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ) {
+                            Text(
+                                text = Units.formatRmPerKm(costPerKm, settings.hideAmounts),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                if (budgetSen != null && budgetSen > 0L) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val ratio = (spendTotalSen.toFloat() / budgetSen.toFloat()).coerceIn(0f, 1.5f)
+                    val barColor = when {
+                        ratio > 1f -> StatusRed
+                        ratio >= 0.8f -> StatusAmber
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Monthly budget ${Units.formatRmCompact(budgetSen, settings.hideAmounts)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        val remaining = budgetSen - spendTotalSen
+                        Text(
+                            text = if (remaining >= 0) {
+                                "${Units.formatRmCompact(remaining, settings.hideAmounts)} left"
+                            } else {
+                                "${Units.formatRmCompact(-remaining, settings.hideAmounts)} over"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = barColor
+                        )
+                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     LinearProgressIndicator(
-                        progress = { progress },
+                        progress = { ratio.coerceIn(0f, 1f) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp)
                             .clip(RoundedCornerShape(3.dp)),
-                        color = if (overBudget) StatusRed else MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        color = barColor,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
                     )
+                }
+            }
+        }
+
+        // Question 2: How efficiently am I driving?
+        item {
+            val overallKmPerL = fuelEconomy.overallKmPerL
+            val overallL100 = fuelEconomy.overallLPer100
+            val fuelCostPerKm = fuelEconomy.costPerKmSen
+            val latest = fuelEconomy.latest
+            val trend = fuelEconomy.trend
+
+            CarLensCard(onClick = onNavigateToFuel) {
+                HomeCardHeader(
+                    icon = Icons.Rounded.Speed,
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    overline = "HOW EFFICIENTLY AM I DRIVING?",
+                    actionLabel = "Fuel log"
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (overallKmPerL != null && overallL100 != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.Bottom,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = Units.formatKmPerL(overallKmPerL),
+                                    style = MaterialTheme.typography.displayMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "km/L",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(bottom = 3.dp)
+                                )
+                            }
+                            Text(
+                                text = "Overall (${fuelEconomy.intervals.count { !it.suspicious }} valid intervals)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh
+                            ) {
+                                Text(
+                                    text = "${Units.formatLPer100(overallL100)} L/100 km",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                )
+                            }
+                            if (fuelCostPerKm != null) {
+                                Text(
+                                    text = Units.formatRmPerKm(fuelCostPerKm, settings.hideAmounts),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    if (latest != null || trend != null || fuelEconomy.anomalies.isNotEmpty()) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 12.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (latest != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Last fill-up (${latest.endDate.format(dateFmt)})",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "${Units.formatKmPerL(latest.kmPerL)} km/L · ${Units.formatKm(latest.distanceKm)}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                            if (trend != null) {
+                                val (trendColor, trendIcon) = when (trend.direction) {
+                                    TrendDirection.DECREASED -> StatusGreen to Icons.AutoMirrored.Rounded.TrendingDown
+                                    TrendDirection.INCREASED -> StatusAmber to Icons.AutoMirrored.Rounded.TrendingUp
+                                    TrendDirection.STABLE -> MaterialTheme.colorScheme.primary to Icons.Rounded.CheckCircle
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = trendIcon,
+                                        contentDescription = null,
+                                        tint = trendColor,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = trend.message,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = trendColor,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                            if (fuelEconomy.anomalies.isNotEmpty()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Warning,
+                                        contentDescription = null,
+                                        tint = StatusAmber,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Text(
+                                        text = "${fuelEconomy.anomalies.size} fill-up entry needs review",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = StatusAmber,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
                 } else {
                     Text(
-                        text = "Tap to inspect category breakdown & 6-month trend",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // 2. How efficiently am I driving?
-        Text(
-            text = "How Efficiently Am I Driving?",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            val latestInterval = fuelEconomy.latest
-            StatCard(
-                title = "Latest Economy",
-                value = latestInterval?.let { "${Units.formatKmPerL(it.kmPerL)} km/L" } ?: "—",
-                subtitle = latestInterval?.let { "${Units.formatLPer100(it.lPer100Km)} L/100 km" } ?: "Need 2 full fill-ups",
-                modifier = Modifier.weight(1f),
-                onClick = onNavigateToFuel
-            )
-
-            StatCard(
-                title = "Overall Average",
-                value = fuelEconomy.overallKmPerL?.let { "${Units.formatKmPerL(it)} km/L" } ?: "—",
-                subtitle = fuelEconomy.costPerKmSen?.let { Units.formatRmPerKm(it, settings.hideAmounts) } ?: "All valid intervals",
-                modifier = Modifier.weight(1f),
-                onClick = onNavigateToFuel
-            )
-        }
-
-        // Fuel Trend Alert (if detected offline)
-        if (fuelEconomy.trend != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.small,
-                colors = CardDefaults.cardColors(
-                    containerColor = when (fuelEconomy.trend!!.direction) {
-                        com.carlens.domain.calc.TrendDirection.INCREASED -> StatusAmber.copy(alpha = 0.15f)
-                        com.carlens.domain.calc.TrendDirection.DECREASED -> MaterialTheme.colorScheme.primaryContainer
-                        com.carlens.domain.calc.TrendDirection.STABLE -> MaterialTheme.colorScheme.surfaceVariant
-                    }
-                )
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.TrendingUp,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "${fuelEconomy.trend!!.message} (${String.format(Locale.US, "%+.1f%%", fuelEconomy.trend!!.changePercent)})",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // 3. What is due next?
-        Text(
-            text = "What Needs Attention Next?",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (nextMaintenance == null && nextRenewal == null) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "All maintenance and renewals are up to date!",
+                        text = "Record two full tank fill-ups to calculate km/L, L/100 km, and fuel cost/km.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-        } else {
-            if (nextMaintenance != null) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onNavigateToCare),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+        }
+
+        // Question 3: What needs attention next?
+        item {
+            SectionHeader(
+                title = "What needs attention next?",
+                subtitle = "Service schedule and document renewals",
+                trailing = {
+                    TextButton(onClick = onNavigateToCare) {
+                        Text("View all")
+                    }
+                }
+            )
+        }
+
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (nextMaintenance == null && nextRenewal == null) {
+                    CarLensCard(onClick = onNavigateToCare) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = StatusGreen.copy(alpha = 0.14f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CheckCircle,
+                                    contentDescription = null,
+                                    tint = StatusGreen,
+                                    modifier = Modifier
+                                        .padding(10.dp)
+                                        .size(22.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "No maintenance or renewals configured",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Add service reminders in Care or road tax/insurance dates in Garage.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (nextMaintenance != null) {
+                    val accent = dueStateColor(nextMaintenance.state)
+                    val isUrgent = nextMaintenance.state != DueState.UP_TO_DATE
+                    UrgencyStripCard(
+                        accentColor = accent,
+                        highlighted = isUrgent,
+                        onClick = onNavigateToCare
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Build,
+                                    imageVector = Icons.Rounded.Build,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
+                                    tint = accent,
+                                    modifier = Modifier.size(17.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = nextMaintenance.rule.task,
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            StatusBadge(state = nextMaintenance.state)
+                            StatusPillDot(
+                                text = nextMaintenance.state.label,
+                                color = accent
+                            )
                         }
+
                         Spacer(modifier = Modifier.height(6.dp))
+
                         Text(
-                            text = "Due: ${nextMaintenance.summary}",
+                            text = nextMaintenance.summary,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
-                        if (nextMaintenance.estimatedKmDueDate != null) {
-                            Spacer(modifier = Modifier.height(2.dp))
+
+                        val progress = nextMaintenance.progressFraction
+                        if (progress != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(5.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = accent,
+                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
+                        }
+
+                        val estDate = nextMaintenance.estimatedKmDueDate
+                        if (estDate != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Estimated due date based on driving: ${nextMaintenance.estimatedKmDueDate}",
+                                text = "Estimated mileage due ~${estDate.format(dateFmt)}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
-            }
 
-            if (nextRenewal != null) {
-                if (nextMaintenance != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onNavigateToGarage),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                if (nextRenewal != null) {
+                    val accent = dueStateColor(nextRenewal.state)
+                    val isUrgent = nextRenewal.state != DueState.UP_TO_DATE
+                    val expiry = nextRenewal.document.expiryDate
+                    val daysRem = nextRenewal.daysRemaining
+                    val expectedCost = nextRenewal.document.expectedRenewalSen
+
+                    UrgencyStripCard(
+                        accentColor = accent,
+                        highlighted = isUrgent,
+                        onClick = onNavigateToGarage
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Description,
+                                    imageVector = Icons.Rounded.Description,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
+                                    tint = accent,
+                                    modifier = Modifier.size(17.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = nextRenewal.document.title,
+                                    text = nextRenewal.document.title.ifBlank { nextRenewal.document.type.label },
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            StatusBadge(state = nextRenewal.state)
+                            StatusPillDot(
+                                text = nextRenewal.state.label,
+                                color = accent
+                            )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val days = nextRenewal.daysRemaining ?: 0
-                            Text(
-                                text = if (days >= 0) {
-                                    "Expires in $days days (${nextRenewal.document.expiryDate})"
-                                } else {
-                                    "Expired ${-days} days ago (${nextRenewal.document.expiryDate})"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (nextRenewal.state != DueState.UP_TO_DATE) {
-                                TextButton(onClick = { onRenewDocumentClick(nextRenewal.document) }) {
-                                    Text("Renew")
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                val expiryText = when {
+                                    daysRem != null && daysRem < 0 -> "Expired ${-daysRem} days ago"
+                                    daysRem != null -> "Expires in $daysRem days (${expiry?.format(dateFmt) ?: ""})"
+                                    expiry != null -> "Expires ${expiry.format(dateFmt)}"
+                                    else -> "No expiry date"
+                                }
+                                Text(
+                                    text = expiryText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                if (expectedCost != null && expectedCost > 0) {
+                                    Text(
+                                        text = "Est. renewal ${Units.formatRm(expectedCost, settings.hideAmounts)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            if (isUrgent) {
+                                FilledTonalButton(
+                                    onClick = { onRenewDocumentClick(nextRenewal.document) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Renew", style = MaterialTheme.typography.labelMedium)
                                 }
                             }
                         }
@@ -568,7 +717,61 @@ fun HomeScreen(
                 }
             }
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(24.dp))
+@Composable
+private fun HomeCardHeader(
+    icon: ImageVector,
+    iconTint: Color,
+    overline: String,
+    actionLabel: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(9.dp),
+                color = iconTint.copy(alpha = 0.13f)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier
+                        .padding(6.dp)
+                        .size(16.dp)
+                )
+            }
+            Text(
+                text = overline,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = actionLabel,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp)
+            )
+        }
     }
 }

@@ -1,6 +1,5 @@
 package com.carlens.ui
 
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -18,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.carlens.domain.calc.DueState
 import com.carlens.domain.model.Expense
 import com.carlens.domain.model.FuelEntry
 import com.carlens.domain.model.MaintenanceRule
@@ -76,6 +76,7 @@ fun CarLensAppView(
     val attachmentCounts by viewModel.attachmentCounts.collectAsStateWithLifecycle()
     val hasRecoveryBackup by viewModel.hasRecoveryBackup.collectAsStateWithLifecycle()
     val pendingBackupPreview by viewModel.pendingBackupPreview.collectAsStateWithLifecycle()
+    val passwordRequiredUri by viewModel.passwordRequiredUri.collectAsStateWithLifecycle()
     val pendingScreen by viewModel.pendingScreen.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
 
@@ -116,8 +117,6 @@ fun CarLensAppView(
 
     // Export/Restore backup states
     var exportPasswordDialog by remember { mutableStateOf(false) }
-    var restorePasswordDialog by remember { mutableStateOf(false) }
-    var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
     var pendingExportPassword by remember { mutableStateOf<CharArray?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -139,8 +138,7 @@ fun CarLensAppView(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            pendingRestoreUri = uri
-            restorePasswordDialog = true
+            viewModel.inspectBackupArchive(uri.toString(), null)
         }
     }
 
@@ -234,7 +232,29 @@ fun CarLensAppView(
                 }
                 viewModel.clearMessage()
             }
+            is UiMessage.UndoManualReading -> {
+                val result = snackbarHostState.showSnackbar(
+                    message = "Deleted manual reading (${msg.reading.km} km)",
+                    actionLabel = "UNDO",
+                    duration = SnackbarDuration.Short
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    viewModel.restoreManualReading(msg.reading)
+                }
+                viewModel.clearMessage()
+            }
             null -> Unit
+        }
+    }
+
+    val careAlertCount = remember(maintenanceStatuses) {
+        maintenanceStatuses.count {
+            !it.snoozed && (it.state == DueState.DUE_SOON || it.state == DueState.DUE || it.state == DueState.OVERDUE)
+        }
+    }
+    val garageAlertCount = remember(documents) {
+        documents.count {
+            it.state == DueState.DUE_SOON || it.state == DueState.DUE || it.state == DueState.OVERDUE
         }
     }
 
@@ -242,6 +262,9 @@ fun CarLensAppView(
         CarLensScaffold(
             currentScreen = currentScreen,
             onScreenSelected = { currentScreen = it },
+            careAlertCount = careAlertCount,
+            garageAlertCount = garageAlertCount,
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             onAddFuelClick = {
                 fuelToEdit = null
                 showAddFuelDialog = true
@@ -255,12 +278,35 @@ fun CarLensAppView(
                 expenseToEdit = null
                 showAddExpenseDialog = true
             },
+            onAddDocumentClick = {
+                documentToEdit = null
+                showAddDocumentDialog = true
+            },
             onUpdateMileageClick = { showUpdateMileageDialog = true }
         ) {
-            when (currentScreen) {
+            androidx.compose.animation.AnimatedContent(
+                targetState = currentScreen,
+                transitionSpec = {
+                    androidx.compose.animation.ContentTransform(
+                        targetContentEnter = androidx.compose.animation.fadeIn(
+                            androidx.compose.animation.core.tween(180)
+                        ),
+                        initialContentExit = androidx.compose.animation.fadeOut(
+                            androidx.compose.animation.core.tween(140)
+                        )
+                    )
+                },
+                label = "carlensScreenTransition"
+            ) { screen ->
+                when (screen) {
                 Screen.HOME -> HomeScreen(
                     selectedVehicle = selectedVehicle,
                     allVehicles = vehicles,
+                    onTogglePrivacy = {
+                        val mask = !(settings.hideAmounts || settings.hidePlate)
+                        viewModel.setHideAmounts(mask)
+                        viewModel.setHidePlate(mask)
+                    },
                     mileage = mileage,
                     monthlyCost = currentMonthCost,
                     fuelEconomy = fuelEconomy,
@@ -426,12 +472,8 @@ fun CarLensAppView(
                     onHideNotifDetailsChanged = { viewModel.setHideNotifDetails(it) }
                 )
             }
+            }
         }
-
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter)
-        )
 
         // Dialogs
         val activeVehicle = selectedVehicle
@@ -480,12 +522,24 @@ fun CarLensAppView(
         }
 
         if (showAddExpenseDialog && activeVehicle != null) {
+            val editingExpense = expenseToEdit
+            val linkedDoc = editingExpense?.documentId?.let { docId ->
+                documents.firstOrNull { it.document.id == docId }?.document
+            }
             AddExpenseDialog(
                 vehicleId = activeVehicle.id,
-                expenseToEdit = expenseToEdit,
+                expenseToEdit = editingExpense,
                 merchantSuggestions = merchantSuggestions,
                 saveExpense = viewModel.saveExpense,
                 attachmentRepo = viewModel.attachmentRepo,
+                onOpenLinkedDocument = linkedDoc?.let { doc ->
+                    {
+                        showAddExpenseDialog = false
+                        expenseToEdit = null
+                        documentToEdit = doc
+                        showAddDocumentDialog = true
+                    }
+                },
                 onDismiss = {
                     showAddExpenseDialog = false
                     expenseToEdit = null
@@ -568,6 +622,7 @@ fun CarLensAppView(
             RenewDocumentDialog(
                 document = docToRenew,
                 renewDocument = viewModel.renewDocument,
+                attachmentRepo = viewModel.attachmentRepo,
                 onDismiss = { documentToRenew = null },
                 onSuccess = { documentToRenew = null }
             )
@@ -617,18 +672,14 @@ fun CarLensAppView(
             )
         }
 
-        val restoreUri = pendingRestoreUri
-        if (restorePasswordDialog && restoreUri != null) {
+        val encryptedUri = passwordRequiredUri
+        if (encryptedUri != null) {
             InspectBackupDialog(
                 onConfirm = { pw ->
-                    restorePasswordDialog = false
-                    pendingRestoreUri = null
-                    viewModel.inspectBackupArchive(restoreUri.toString(), pw)
+                    viewModel.clearPasswordRequiredUri()
+                    viewModel.inspectBackupArchive(encryptedUri, pw)
                 },
-                onDismiss = {
-                    restorePasswordDialog = false
-                    pendingRestoreUri = null
-                }
+                onDismiss = { viewModel.clearPasswordRequiredUri() }
             )
         }
 

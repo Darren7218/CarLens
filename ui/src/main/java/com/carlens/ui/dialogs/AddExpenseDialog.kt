@@ -17,6 +17,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,6 +53,7 @@ fun AddExpenseDialog(
     expenseToEdit: Expense? = null,
     saveExpense: SaveExpense,
     attachmentRepo: AttachmentRepository,
+    onOpenLinkedDocument: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     onSuccess: () -> Unit
 ) {
@@ -157,6 +159,16 @@ fun AddExpenseDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
+                if (expenseToEdit?.documentId != null && onOpenLinkedDocument != null) {
+                    OutlinedButton(
+                        onClick = onOpenLinkedDocument,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("View Linked Document / Renewal")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
                 DatePickerField(
                     label = "Expense Date",
                     selectedDate = selectedDate,

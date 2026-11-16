@@ -60,6 +60,7 @@ import com.carlens.ui.components.AttachmentSection
 import com.carlens.ui.components.DatePickerField
 import com.carlens.ui.components.SuggestionChipsRow
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 import java.util.UUID
@@ -98,10 +99,7 @@ fun AddServiceDialog(
     }
     var workshopText by remember { mutableStateOf(recordToEdit?.workshop ?: "") }
     var odometerText by remember {
-        mutableStateOf(
-            if (recordToEdit != null) (recordToEdit.odometerKm?.toString() ?: "")
-            else (lastMileageKm?.toString() ?: "")
-        )
+        mutableStateOf(recordToEdit?.odometerKm?.toString() ?: "")
     }
     var totalBillText by remember {
         mutableStateOf(recordToEdit?.totalSen?.let { Units.senToPlain(it) } ?: "")
@@ -149,23 +147,56 @@ fun AddServiceDialog(
                     obj.optString("odometer").takeIf { it.isNotBlank() }?.let { odometerText = it }
                     obj.optString("totalBill").takeIf { it.isNotBlank() }?.let { totalBillText = it }
                     obj.optString("notes").takeIf { it.isNotBlank() }?.let { notesText = it }
+                    val itemsArr = obj.optJSONArray("items")
+                    if (itemsArr != null && itemsArr.length() > 0) {
+                        val loaded = mutableListOf<ServiceItemDraft>()
+                        for (i in 0 until itemsArr.length()) {
+                            val itemObj = itemsArr.optJSONObject(i) ?: continue
+                            loaded += ServiceItemDraft(
+                                task = itemObj.optString("task"),
+                                part = itemObj.optString("part"),
+                                costText = itemObj.optString("costText"),
+                                ruleId = itemObj.optString("ruleId").takeIf { it.isNotBlank() }
+                            )
+                        }
+                        if (loaded.isNotEmpty()) {
+                            items.clear()
+                            items.addAll(loaded)
+                        }
+                    }
                 }
             }
             draftLoaded = true
         }
     }
 
-    LaunchedEffect(titleText, workshopText, odometerText, totalBillText, notesText, draftLoaded) {
+    val itemsSnapshot = items.map { "${it.task}|${it.part}|${it.costText}|${it.ruleId.orEmpty()}" }
+    LaunchedEffect(titleText, workshopText, odometerText, totalBillText, notesText, itemsSnapshot, draftLoaded) {
         if (!isEditing && initialRule == null && draftLoaded && settingsRepo != null) {
-            if (workshopText.isBlank() && totalBillText.isBlank() && notesText.isBlank()) {
+            val hasCustomItems = items.size > 1 || items.any {
+                it.part.isNotBlank() || it.costText.isNotBlank() || (it.task.isNotBlank() && it.task != "Engine Oil & Filter")
+            }
+            if (workshopText.isBlank() && odometerText.isBlank() && totalBillText.isBlank() && notesText.isBlank() && !hasCustomItems) {
                 settingsRepo.saveDraft(draftKey, null)
             } else {
+                val itemsArr = JSONArray()
+                items.forEach { item ->
+                    itemsArr.put(
+                        JSONObject().apply {
+                            put("task", item.task)
+                            put("part", item.part)
+                            put("costText", item.costText)
+                            put("ruleId", item.ruleId ?: "")
+                        }
+                    )
+                }
                 val json = JSONObject().apply {
                     put("title", titleText)
                     put("workshop", workshopText)
                     put("odometer", odometerText)
                     put("totalBill", totalBillText)
                     put("notes", notesText)
+                    put("items", itemsArr)
                 }.toString()
                 settingsRepo.saveDraft(draftKey, json)
             }
@@ -310,8 +341,16 @@ fun AddServiceDialog(
                     )
                     OutlinedTextField(
                         value = odometerText,
-                        onValueChange = { odometerText = it },
+                        onValueChange = {
+                            odometerText = it
+                            warnings = emptyList()
+                        },
                         label = { Text("Odometer (km)") },
+                        supportingText = {
+                            if (lastMileageKm != null) {
+                                Text("Latest: ${Units.formatKm(lastMileageKm)}")
+                            }
+                        },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f),
                         singleLine = true

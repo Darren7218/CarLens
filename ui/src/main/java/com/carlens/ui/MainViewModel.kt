@@ -27,6 +27,7 @@ import com.carlens.domain.repository.ExpenseRepository
 import com.carlens.domain.repository.FuelRepository
 import com.carlens.domain.repository.MaintenanceRepository
 import com.carlens.domain.repository.OdometerRepository
+import com.carlens.domain.repository.PasswordRequiredException
 import com.carlens.domain.repository.ServiceRepository
 import com.carlens.domain.repository.SettingsRepository
 import com.carlens.domain.repository.VehicleRepository
@@ -71,6 +72,7 @@ sealed interface UiMessage {
     data class UndoExpense(val expense: Expense) : UiMessage
     data class UndoDocument(val doc: VehicleDocument) : UiMessage
     data class UndoRule(val rule: MaintenanceRule) : UiMessage
+    data class UndoManualReading(val reading: OdometerReading) : UiMessage
     data class Error(val text: String) : UiMessage
 }
 
@@ -246,6 +248,9 @@ class MainViewModel @Inject constructor(
     private val _pendingBackupPreview = MutableStateFlow<BackupPreview?>(null)
     val pendingBackupPreview: StateFlow<BackupPreview?> = _pendingBackupPreview.asStateFlow()
 
+    private val _passwordRequiredUri = MutableStateFlow<String?>(null)
+    val passwordRequiredUri: StateFlow<String?> = _passwordRequiredUri.asStateFlow()
+
     private val _pendingScreen = MutableStateFlow<Screen?>(null)
     val pendingScreen: StateFlow<Screen?> = _pendingScreen.asStateFlow()
 
@@ -308,10 +313,17 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 _pendingBackupPreview.value = restoreBackup.inspect(sourceUri, password)
+                _passwordRequiredUri.value = null
+            } catch (_: PasswordRequiredException) {
+                _passwordRequiredUri.value = sourceUri
             } catch (e: Exception) {
                 _message.value = UiMessage.Error("Inspect failed: ${e.message}")
             }
         }
+    }
+
+    fun clearPasswordRequiredUri() {
+        _passwordRequiredUri.value = null
     }
 
     fun inspectLatestRecoveryBackup() {
@@ -506,7 +518,18 @@ class MainViewModel @Inject constructor(
     fun deleteManualReading(reading: OdometerReading) {
         viewModelScope.launch {
             odometerRepo.deleteManualReading(reading.id)
-            _message.value = UiMessage.Info("Deleted manual reading (${reading.km} km)")
+            _message.value = UiMessage.UndoManualReading(reading)
+        }
+    }
+
+    fun restoreManualReading(reading: OdometerReading) {
+        viewModelScope.launch {
+            odometerRepo.addManualReading(
+                vehicleId = reading.vehicleId,
+                time = reading.time,
+                km = reading.km,
+                startsNewSegment = reading.startsNewSegment
+            )
         }
     }
 

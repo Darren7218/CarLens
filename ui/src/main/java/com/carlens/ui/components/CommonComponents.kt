@@ -28,12 +28,15 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
@@ -530,9 +533,13 @@ fun AttachmentSection(
 fun CarLensScaffold(
     currentScreen: Screen,
     onScreenSelected: (Screen) -> Unit,
+    careAlertCount: Int = 0,
+    garageAlertCount: Int = 0,
+    snackbarHost: @Composable () -> Unit = {},
     onAddFuelClick: () -> Unit,
     onAddServiceClick: () -> Unit,
     onAddExpenseClick: () -> Unit,
+    onAddDocumentClick: () -> Unit = {},
     onUpdateMileageClick: () -> Unit,
     content: @Composable () -> Unit
 ) {
@@ -541,6 +548,8 @@ fun CarLensScaffold(
     val scope = rememberCoroutineScope()
 
     Scaffold(
+        snackbarHost = snackbarHost,
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -548,11 +557,28 @@ fun CarLensScaffold(
             ) {
                 Screen.values().forEach { screen ->
                     val selected = currentScreen == screen
+                    val badgeCount = when (screen) {
+                        Screen.CARE -> careAlertCount
+                        Screen.GARAGE -> garageAlertCount
+                        else -> 0
+                    }
                     NavigationBarItem(
                         selected = selected,
                         onClick = { onScreenSelected(screen) },
                         icon = {
-                            Icon(imageVector = screen.icon, contentDescription = screen.title)
+                            if (badgeCount > 0) {
+                                BadgedBox(
+                                    badge = {
+                                        Badge {
+                                            Text(badgeCount.toString())
+                                        }
+                                    }
+                                ) {
+                                    Icon(imageVector = screen.icon, contentDescription = screen.title)
+                                }
+                            } else {
+                                Icon(imageVector = screen.icon, contentDescription = screen.title)
+                            }
                         },
                         label = { Text(screen.title) },
                         colors = NavigationBarItemDefaults.colors(
@@ -565,14 +591,14 @@ fun CarLensScaffold(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
+            androidx.compose.material3.ExtendedFloatingActionButton(
                 onClick = { showActionSheet = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Add", fontWeight = FontWeight.SemiBold) },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 shape = RoundedCornerShape(18.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add record")
-            }
+            )
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
@@ -629,6 +655,18 @@ fun CarLensScaffold(
                             scope.launch { sheetState.hide() }.invokeOnCompletion {
                                 showActionSheet = false
                                 onAddExpenseClick()
+                            }
+                        }
+                    )
+
+                    QuickActionRow(
+                        title = "Add Document / Renewal",
+                        subtitle = "Insurance policy, road tax, or warranty expiry",
+                        icon = Icons.Default.Description,
+                        onClick = {
+                            scope.launch { sheetState.hide() }.invokeOnCompletion {
+                                showActionSheet = false
+                                onAddDocumentClick()
                             }
                         }
                     )

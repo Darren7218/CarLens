@@ -149,6 +149,8 @@ class FuelEconomyTest {
         )
         // Average of displayed values would be 15; correct overall is 700 / 40 = 17.5.
         assertEquals(17.5, r.overallKmPerL!!, 0.001)
+        assertEquals(20.0, r.bestInterval!!.kmPerL, 0.001)
+        assertEquals(10.0, r.lowestInterval!!.kmPerL, 0.001)
     }
 
     @Test fun `implausible interval is flagged and excluded from overall`() {
@@ -256,6 +258,16 @@ class MaintenanceTest {
         assertEquals(50_000L, s.dueKm)
         assertEquals(500L, s.kmRemaining)
         assertEquals(DueState.DUE_SOON, s.state)
+        assertEquals(0.95f, s.progressFraction!!, 0.01f)
+    }
+
+    @Test fun `progressFraction picks max of date and mileage progress and clamps to 0 to 1`() {
+        val today = D0.plusMonths(3) // ~50% of 6 months
+        val s = MaintenanceEvaluator.evaluate(rule(6, 10_000), emptyList(), snap(58_000, today), today) // 80% of 10,000 km
+        assertEquals(0.80f, s.progressFraction!!, 0.01f)
+
+        val overdue = MaintenanceEvaluator.evaluate(rule(6, 10_000), emptyList(), snap(62_000, today), today)
+        assertEquals(1.0f, overdue.progressFraction!!, 0.001f)
     }
 }
 
